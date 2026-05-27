@@ -107,6 +107,8 @@ const db = getFirestore(firebaseApp);
 const leagueRef = doc(db, "league", "data");
 const historyCol = collection(db, "history");
 const transactionsCol = collection(db, "transactions");
+const draftRef = doc(db, "draft", "state");
+const draftCodesRef = doc(db, "draft", "codes");
 
 // Save a weekly snapshot — called automatically on Mondays & manually by commish
 async function saveHistorySnapshot(label) {
@@ -328,6 +330,20 @@ let S = {
   dbResults: [], dbRunning: false, dbDone: false,
   // history backfill
   backfillRunning: false, backfillStatus: "", backfillDone: false,
+  setupDraftRounds: 8,
+  // draft
+  draftState: null,          // live draft state from Firebase
+  draftCodes: null,          // { teamId: code } map
+  draftMyTeamId: null,       // which team this browser owns
+  draftCodeInput: "",        // code entry field
+  draftCodeError: "",        // error message
+  draftSearch: "",           // player search input
+  draftSearchResults: [],    // MLB API search results
+  draftSearchLoading: false,
+  draftPickType: "hr",       // "hr" | "hbp" — type selector during pick
+  draftConfirming: null,     // { player } — confirm step before locking in
+  draftCodesGenerated: false,// whether commish has generated codes this session
+  draftGenStatus: "",        // status message for code gen
 };
 
 function set(partial) { S = {...S, ...partial}; render(); }
@@ -2155,6 +2171,86 @@ function buildCommish() {
     }, S.backfillRunning ? "⟳ Running backfill…" : "📅 Backfill History")
   ));
 
+  // ── Draft Management Section ─────────────────────────────────────────────
+  const draftMgmt = h("div",{style:{marginTop:"24px",paddingTop:"20px",borderTop:`1px solid ${C.border}`}});
+  draftMgmt.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"Draft Management"));
+  draftMgmt.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"14px"}},"Generate unique codes for each team owner, then start the live snake draft."));
+
+  // Step 1: Generate codes
+  const codesSection = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"12px"}});
+  codesSection.appendChild(h("div",{style:{color:C.text,fontWeight:"700",fontSize:"13px",marginBottom:"8px"}},"Step 1 — Team Codes"));
+  if(S.draftCodes) {
+    // Show existing codes
+    const codesGrid = h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px",marginBottom:"10px"}});
+    S.teams.forEach(t => {
+      const code = S.draftCodes[t.id] || "—";
+      const cell = h("div",{style:{background:C.card,borderRadius:"6px",padding:"8px 10px",border:`1px solid ${C.border}`}});
+      cell.appendChild(h("div",{style:{color:C.muted,fontSize:"10px",marginBottom:"2px"}},t.name));
+      cell.appendChild(h("div",{style:{color:C.accent,fontFamily:"'Bebas Neue',sans-serif",fontSize:"18px",letterSpacing:"0.1em"}},code));
+      codesGrid.appendChild(cell);
+    });
+    codesSection.appendChild(codesGrid);
+    codesSection.appendChild(h("div",{style:{color:C.muted,fontSize:"11px"}},"Share each code with the corresponding owner."));
+  } else {
+    codesSection.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"10px"}},"No codes yet. Click below to generate one unique code per team."));
+  }
+  if(S.draftGenStatus) codesSection.appendChild(h("div",{style:{color:C.green,fontSize:"12px",marginTop:"6px",fontWeight:"600"}},S.draftGenStatus));
+  codesSection.appendChild(h("button",{
+    style:{marginTop:"10px",padding:"8px 16px",borderRadius:"7px",cursor:"pointer",fontWeight:"700",fontSize:"12px",
+      background:`${C.accent}22`,border:`1px solid ${C.accent}55`,color:C.accent},
+    onClick:generateDraftCodes
+  }, S.draftCodes ? "🔄 Regenerate Codes" : "🎲 Generate Team Codes"));
+  draftMgmt.appendChild(codesSection);
+
+  // Step 2: Start draft
+  const startSection = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"12px"}});
+  startSection.appendChild(h("div",{style:{color:C.text,fontWeight:"700",fontSize:"13px",marginBottom:"8px"}},"Step 2 — Start Draft"));
+
+  const currentDraftStatus = S.draftState?.status;
+  if(currentDraftStatus === "active") {
+    startSection.appendChild(h("div",{style:{color:C.green,fontWeight:"700",fontSize:"13px"}},"✓ Draft is live!"));
+    startSection.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginTop:"4px"}},`Pick ${(S.draftState?.currentPickIdx||0)+1} of ${S.draftState?.order?.length||0} · Close this panel and go to the Draft tab.`));
+  } else if(currentDraftStatus === "complete") {
+    startSection.appendChild(h("div",{style:{color:C.accent,fontWeight:"700",fontSize:"13px"}},"✓ Draft complete — rosters saved."));
+  } else {
+    startSection.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"10px"}},`Will create a ${S.teams.length}-team snake draft. Set the number of rounds (picks per team):`));
+    // Round count picker
+    const rcWrap = h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px",marginBottom:"12px"}});
+    [6,7,8,9,10].forEach(n => {
+      const active = (S.setupDraftRounds||8) === n;
+      rcWrap.appendChild(h("button",{
+        style:{padding:"8px",borderRadius:"6px",cursor:"pointer",fontWeight:"700",fontSize:"13px",
+          background:active?`${C.accent}22`:C.card,
+          border:`1px solid ${active?C.accent:C.border}`,
+          color:active?C.accent:C.muted},
+        onClick:()=>set({setupDraftRounds:n})
+      },n));
+    });
+    startSection.appendChild(rcWrap);
+    startSection.appendChild(h("button",{
+      style:{width:"100%",padding:"10px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"14px",
+        background:C.accent,border:"none",color:"#000"},
+      onClick:()=>initDraft(S.setupDraftRounds||8)
+    },"🚀 Start Live Draft"));
+  }
+  draftMgmt.appendChild(startSection);
+
+  // Reset draft
+  if(currentDraftStatus) {
+    const resetBtn = h("button",{
+      style:{padding:"8px 16px",borderRadius:"7px",cursor:"pointer",fontWeight:"700",fontSize:"12px",
+        background:"#e84a4a22",border:"1px solid #e84a4a44",color:C.red,marginTop:"4px"},
+      onClick:async()=>{
+        if(!confirm("Reset the entire draft? This cannot be undone.")) return;
+        await setDoc(draftRef, {status:"waiting",order:[],picks:[],currentPickIdx:0});
+        set({draftState:{status:"waiting",order:[],picks:[],currentPickIdx:0}});
+      }
+    },"⚠️ Reset Draft");
+    draftMgmt.appendChild(resetBtn);
+  }
+
+  panel.appendChild(draftMgmt);
+
   overlay.appendChild(panel);
   return overlay;
 }
@@ -2237,6 +2333,479 @@ function buildLogoModal() {
   overlay.appendChild(h("div",{style:{color:"#6b7fa3",fontSize:"13px",textAlign:"center",marginBottom:"24px"}},team.owner||""));
   overlay.appendChild(h("div",{style:{color:"#6b7fa3",fontSize:"12px"}},"Tap anywhere to close"));
   return overlay;
+}
+
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── DRAFT SYSTEM ──────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Generate a random 4-char alphanumeric code
+function genCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({length:6}, () => chars[Math.floor(Math.random()*chars.length)]).join("");
+}
+
+// Generate codes for every team and save to Firebase
+async function generateDraftCodes() {
+  set({draftGenStatus:"Generating codes…"});
+  const codes = {};
+  S.teams.forEach(t => { codes[t.id] = genCode(); });
+  try {
+    await setDoc(draftCodesRef, { codes, createdAt: new Date().toISOString() });
+    set({draftCodes: codes, draftCodesGenerated: true, draftGenStatus:"✓ Codes saved!"});
+    setTimeout(()=>set({draftGenStatus:""}), 3000);
+  } catch(e) {
+    set({draftGenStatus:"❌ Failed to save codes"});
+  }
+}
+
+// Initialize a new draft in Firebase
+async function initDraft(numRounds) {
+  if(!S.teams.length) { alert("No teams loaded yet."); return; }
+  if(!S.draftCodes) { alert("Generate team codes first."); return; }
+  // Build snake order: rounds alternate forward/backward
+  const teamIds = S.teams.map(t=>t.id);
+  const order = [];
+  for(let r=0; r<numRounds; r++) {
+    const round = r % 2 === 0 ? [...teamIds] : [...teamIds].reverse();
+    round.forEach(id => order.push({round: r+1, teamId: id}));
+  }
+  const state = {
+    status: "active",
+    numRounds,
+    order,
+    currentPickIdx: 0,
+    picks: [],              // [{pickIdx, round, teamId, player:{name,id,teamAbbr}, type, pickedAt}]
+    startedAt: new Date().toISOString(),
+  };
+  try {
+    await setDoc(draftRef, state);
+    set({draftGenStatus:"✓ Draft started!"});
+  } catch(e) {
+    alert("Failed to start draft: " + e.message);
+  }
+}
+
+// Subscribe to live draft state
+function subscribeDraft() {
+  onSnapshot(draftRef, snap => {
+    if(snap.exists()) {
+      set({draftState: snap.data()});
+    } else {
+      set({draftState: null});
+    }
+  });
+  onSnapshot(draftCodesRef, snap => {
+    if(snap.exists()) {
+      set({draftCodes: snap.data().codes || null});
+    }
+  });
+}
+
+// Claim a team slot with a code
+function claimTeamByCode(code) {
+  if(!S.draftCodes) { set({draftCodeError:"No draft codes found. Ask the commissioner."}); return; }
+  const upper = code.trim().toUpperCase();
+  const entry = Object.entries(S.draftCodes).find(([,v]) => v === upper);
+  if(!entry) { set({draftCodeError:"Invalid code. Double-check with your commissioner."}); return; }
+  const teamId = parseInt(entry[0]);
+  localStorage.setItem("draftTeamId", String(teamId));
+  set({draftMyTeamId: teamId, draftCodeError:"", draftCodeInput:""});
+}
+
+// Search MLB API for players
+async function searchDraftPlayers(query) {
+  if(!query.trim()) { set({draftSearchResults:[]}); return; }
+  set({draftSearchLoading:true});
+  try {
+    const r = await fetch(`https://statsapi.mlb.com/api/v1/people/search?names=${encodeURIComponent(query)}&sportId=1&active=true`);
+    const d = await r.json();
+    const people = (d.people || []).slice(0, 8);
+    // Filter out already-drafted players
+    const takenNames = new Set(
+      (S.draftState?.picks||[]).map(p=>p.player.name)
+    );
+    const results = people
+      .filter(p => !takenNames.has(p.fullName))
+      .map(p => ({id:p.id, name:p.fullName, position:p.primaryPosition?.abbreviation||"", team:p.currentTeam?.name||""}));
+    set({draftSearchResults:results, draftSearchLoading:false});
+  } catch(e) {
+    set({draftSearchResults:[], draftSearchLoading:false});
+  }
+}
+
+// Commit a pick to Firebase
+async function commitPick(player, type) {
+  const ds = S.draftState;
+  if(!ds || ds.status !== "active") return;
+  const pick = ds.order[ds.currentPickIdx];
+  if(!pick) return;
+  // Fetch team abbr for the player
+  let teamAbbr = null;
+  try {
+    const r = await fetch(`https://statsapi.mlb.com/api/v1/people/${player.id}/stats?stats=season&group=hitting&season=${new Date().getFullYear()}&sportId=1`);
+    const d = await r.json();
+    teamAbbr = d.stats?.[0]?.splits?.[0]?.team?.abbreviation || null;
+  } catch(e) {}
+
+  const newPick = {
+    pickIdx: ds.currentPickIdx,
+    round: pick.round,
+    teamId: pick.teamId,
+    player: {name:player.name, id:player.id, teamAbbr},
+    type,
+    pickedAt: new Date().toISOString(),
+  };
+  const newPicks = [...(ds.picks||[]), newPick];
+  const nextIdx = ds.currentPickIdx + 1;
+  const isDone = nextIdx >= ds.order.length;
+
+  const update = {
+    ...ds,
+    picks: newPicks,
+    currentPickIdx: nextIdx,
+    status: isDone ? "complete" : "active",
+  };
+
+  try {
+    await setDoc(draftRef, update);
+    // If draft complete, write rosters to Firebase
+    if(isDone) await writeDraftRostersToFirebase(newPicks);
+    set({draftConfirming:null, draftSearch:"", draftSearchResults:[], draftPickType:"hr"});
+  } catch(e) {
+    alert("Pick failed: " + e.message);
+  }
+}
+
+// After draft completes, write rosters to the league/data Firebase doc
+async function writeDraftRostersToFirebase(picks) {
+  const teams = S.teams.map(t => {
+    const teamPicks = picks.filter(p=>p.teamId===t.id);
+    const players = teamPicks.map(p => ({
+      name: p.player.name,
+      type: p.type,
+      teamAbbr: p.player.teamAbbr || null,
+      effectiveHR: 0,
+      effectiveHBP: 0,
+      hrBaseline: null,
+      hbpBaseline: null,
+      addedAt: null,
+      droppedAt: null,
+    }));
+    return {...t, players, hasUsedTransaction: false};
+  });
+  const now = new Date().toISOString();
+  await setDoc(leagueRef, {teams, leagueName: S.leagueName, lastUpdated: now});
+}
+
+// ── buildDraft ─────────────────────────────────────────────────────────────────
+function buildDraft() {
+  const wrap = h("div",{style:{animation:"fadeIn 0.4s ease"}});
+  const ds = S.draftState;
+
+  // ── Restore saved team from localStorage
+  if(S.draftMyTeamId === null) {
+    const saved = localStorage.getItem("draftTeamId");
+    if(saved !== null) {
+      const tid = parseInt(saved);
+      if(S.teams.find(t=>t.id===tid)) {
+        S.draftMyTeamId = tid;
+      }
+    }
+  }
+
+  // ── No draft initialized yet ────────────────────────────────────────────
+  if(!ds) {
+    wrap.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"4px"}},
+      h("span",{style:{fontSize:"20px"}},"🎯"),
+      h("h3",{style:{margin:"0",fontSize:"13px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.12em",color:C.muted}},"Live Draft")
+    ));
+    wrap.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"24px"}},"The commissioner hasn't started the draft yet."));
+
+    // Code entry for owners
+    const codeCard = h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"12px",padding:"20px",marginBottom:"16px"}});
+    codeCard.appendChild(h("div",{style:{color:C.text,fontWeight:"700",fontSize:"15px",marginBottom:"4px"}},"Already have a code?"));
+    codeCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"14px"}},"Enter your team code from the commissioner to claim your seat."));
+    const codeRow = h("div",{style:{display:"flex",gap:"8px"}});
+    const codeInp = h("input",{style:{flex:"1",padding:"10px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",textTransform:"uppercase",outline:"none",letterSpacing:"0.12em"}});
+    codeInp.placeholder = "e.g. XK9M4P";
+    codeInp.value = S.draftCodeInput || "";
+    codeInp.addEventListener("input", e => set({draftCodeInput:e.target.value.toUpperCase()}));
+    codeInp.addEventListener("keydown", e => { if(e.key==="Enter") claimTeamByCode(S.draftCodeInput); });
+    codeRow.appendChild(codeInp);
+    codeRow.appendChild(h("button",{
+      style:{padding:"10px 18px",borderRadius:"8px",cursor:"pointer",background:C.accent,border:"none",color:"#000",fontWeight:"700",fontSize:"14px"},
+      onClick:()=>claimTeamByCode(S.draftCodeInput)
+    },"Claim"));
+    codeCard.appendChild(codeRow);
+    if(S.draftCodeError) codeCard.appendChild(h("div",{style:{color:C.red,fontSize:"12px",marginTop:"8px"}},S.draftCodeError));
+    if(S.draftMyTeamId !== null) {
+      const myTeam = S.teams.find(t=>t.id===S.draftMyTeamId);
+      codeCard.appendChild(h("div",{style:{color:C.green,fontSize:"13px",fontWeight:"700",marginTop:"10px"}},`✓ Claimed: ${myTeam?.name || "Team "+S.draftMyTeamId}`));
+    }
+    wrap.appendChild(codeCard);
+    return wrap;
+  }
+
+  // ── Draft complete ───────────────────────────────────────────────────────
+  if(ds.status === "complete") {
+    return buildDraftRecap(ds, wrap);
+  }
+
+  // ── Draft active ─────────────────────────────────────────────────────────
+  const currentPickEntry = ds.order[ds.currentPickIdx];
+  const currentTeam = S.teams.find(t=>t.id===currentPickEntry?.teamId);
+  const isMyTurn = S.draftMyTeamId !== null && currentPickEntry?.teamId === S.draftMyTeamId;
+  const myTeam = S.teams.find(t=>t.id===S.draftMyTeamId);
+
+  // Header
+  const hdrRow = h("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"4px"}});
+  hdrRow.appendChild(h("span",{style:{fontSize:"20px"}},"🎯"));
+  hdrRow.appendChild(h("h3",{style:{margin:"0",fontSize:"13px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.12em",color:C.muted}},"Live Snake Draft"));
+  wrap.appendChild(hdrRow);
+
+  // Round / pick indicator
+  const round = currentPickEntry?.round || 1;
+  const pickInRound = ds.order.filter(p=>p.round===round).indexOf(currentPickEntry) + 1;
+  const totalTeams = S.teams.length;
+  const totalPicks = ds.order.length;
+  const picksDone = ds.currentPickIdx;
+  const pct = Math.round((picksDone/totalPicks)*100);
+
+  const progressCard = h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"12px 16px",marginBottom:"16px"}});
+  progressCard.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:"11px",color:C.muted,marginBottom:"6px"}},
+    h("span",{},`Round ${round} · Pick ${pickInRound} of ${totalTeams}`),
+    h("span",{},`${picksDone} of ${totalPicks} picks made`)
+  ));
+  const bar = h("div",{style:{height:"4px",background:C.bg,borderRadius:"2px",overflow:"hidden"}});
+  bar.appendChild(h("div",{style:{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${C.accent},${C.red})`,borderRadius:"2px",transition:"width 0.4s ease"}}));
+  progressCard.appendChild(bar);
+  wrap.appendChild(progressCard);
+
+  // "On the clock" banner
+  const clockCard = h("div",{style:{
+    background: isMyTurn ? `linear-gradient(135deg,${C.accent}22,${C.red}11)` : `${C.surface}`,
+    border: `1px solid ${isMyTurn ? C.accent+"88" : C.border}`,
+    borderRadius:"12px", padding:"16px 18px", marginBottom:"16px",
+    boxShadow: isMyTurn ? `0 0 20px ${C.accent}22` : "none"
+  }});
+  clockCard.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"4px"}},"On The Clock"));
+  clockCard.appendChild(h("div",{style:{color:isMyTurn?C.accent:C.text,fontWeight:"800",fontSize:"22px"}},currentTeam?.name || "—"));
+  if(currentTeam?.owner) clockCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginTop:"2px"}},currentTeam.owner));
+  if(isMyTurn) clockCard.appendChild(h("div",{style:{color:C.accent,fontSize:"13px",fontWeight:"700",marginTop:"8px",letterSpacing:"0.04em"}},"⚡ It's your pick!"));
+  wrap.appendChild(clockCard);
+
+  // Claim code entry if not yet claimed
+  if(S.draftMyTeamId === null) {
+    const claimCard = h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"14px 16px",marginBottom:"16px"}});
+    claimCard.appendChild(h("div",{style:{color:C.text,fontWeight:"600",fontSize:"13px",marginBottom:"8px"}},"Enter your team code to make picks:"));
+    const cRow = h("div",{style:{display:"flex",gap:"8px"}});
+    const ci = h("input",{style:{flex:"1",padding:"8px 12px",borderRadius:"7px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"15px",textTransform:"uppercase",outline:"none",letterSpacing:"0.1em"}});
+    ci.placeholder = "Your code"; ci.value = S.draftCodeInput || "";
+    ci.addEventListener("input", e=>set({draftCodeInput:e.target.value.toUpperCase()}));
+    ci.addEventListener("keydown", e=>{ if(e.key==="Enter") claimTeamByCode(S.draftCodeInput); });
+    cRow.appendChild(ci);
+    cRow.appendChild(h("button",{style:{padding:"8px 16px",borderRadius:"7px",cursor:"pointer",background:C.accent,border:"none",color:"#000",fontWeight:"700",fontSize:"13px"},onClick:()=>claimTeamByCode(S.draftCodeInput)},"Go"));
+    claimCard.appendChild(cRow);
+    if(S.draftCodeError) claimCard.appendChild(h("div",{style:{color:C.red,fontSize:"12px",marginTop:"6px"}},S.draftCodeError));
+    wrap.appendChild(claimCard);
+  } else if(!isMyTurn) {
+    wrap.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",textAlign:"center",padding:"8px 0 16px"}},`You're on ${myTeam?.name}. Waiting for ${currentTeam?.name} to pick…`));
+  }
+
+  // ── Pick UI (only shown when it's your turn) ─────────────────────────────
+  if(isMyTurn) {
+    if(S.draftConfirming) {
+      // Confirm step
+      const player = S.draftConfirming.player;
+      const confCard = h("div",{style:{background:C.card,border:`1px solid ${C.accent}55`,borderRadius:"12px",padding:"20px",marginBottom:"16px"}});
+      confCard.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"12px"}},"Confirm Pick"));
+
+      // Player info
+      const plRow = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}});
+      const plLeft = h("div",{});
+      plLeft.appendChild(h("div",{style:{color:C.text,fontWeight:"800",fontSize:"18px"}},player.name));
+      if(player.team) plLeft.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginTop:"2px"}},player.team));
+      plRow.appendChild(plLeft);
+      confCard.appendChild(plRow);
+
+      // Type selector
+      confCard.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"Designate as:"));
+      const typeRow = h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px",marginBottom:"16px"}});
+      ["hr","hbp"].forEach(t => {
+        const active = S.draftPickType === t;
+        const color = t==="hr" ? C.red : C.green;
+        const btn = h("button",{
+          style:{padding:"12px",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"13px",
+            background:active?color+"22":C.bg,
+            border:`1px solid ${active?color+"88":C.border}`,
+            color:active?color:C.muted},
+          onClick:()=>set({draftPickType:t})
+        }, t==="hr" ? "⚾ HR Player" : "🎯 HBP Player");
+        typeRow.appendChild(btn);
+      });
+      confCard.appendChild(typeRow);
+
+      // Action buttons
+      const actRow = h("div",{style:{display:"flex",gap:"10px"}});
+      actRow.appendChild(h("button",{
+        style:{flex:"1",padding:"12px",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"14px",background:"transparent",border:`1px solid ${C.border}`,color:C.muted},
+        onClick:()=>set({draftConfirming:null})
+      },"← Back"));
+      actRow.appendChild(h("button",{
+        style:{flex:"2",padding:"12px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"14px",background:C.accent,border:"none",color:"#000"},
+        onClick:()=>commitPick(player, S.draftPickType)
+      },`Lock In Pick ✓`));
+      confCard.appendChild(actRow);
+      wrap.appendChild(confCard);
+
+    } else {
+      // Search UI
+      const searchCard = h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"12px",padding:"16px",marginBottom:"16px"}});
+      searchCard.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"Search for a player:"));
+
+      let searchTimer = null;
+      const srchInp = h("input",{style:{width:"100%",padding:"11px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",outline:"none",boxSizing:"border-box"}});
+      srchInp.placeholder = "e.g. Aaron Judge";
+      srchInp.value = S.draftSearch || "";
+      srchInp.addEventListener("input", e => {
+        const val = e.target.value;
+        set({draftSearch:val});
+        clearTimeout(searchTimer);
+        if(val.length > 1) {
+          searchTimer = setTimeout(()=>searchDraftPlayers(val), 350);
+        } else {
+          set({draftSearchResults:[]});
+        }
+      });
+      searchCard.appendChild(srchInp);
+
+      if(S.draftSearchLoading) {
+        searchCard.appendChild(h("div",{style:{paddingTop:"12px"}},spinner("Searching…")));
+      } else if(S.draftSearchResults.length > 0) {
+        const resList = h("div",{style:{marginTop:"10px",display:"flex",flexDirection:"column",gap:"4px"}});
+        S.draftSearchResults.forEach(player => {
+          const row = h("div",{class:"row-hover",style:{
+            padding:"10px 12px",borderRadius:"8px",background:C.bg,
+            cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"
+          },onClick:()=>set({draftConfirming:{player}, draftPickType:"hr"})});
+          row.appendChild(h("div",{},
+            h("div",{style:{color:C.text,fontWeight:"600",fontSize:"14px"}},player.name),
+            h("div",{style:{color:C.muted,fontSize:"11px",marginTop:"1px"}},`${player.team}${player.position?" · "+player.position:""}`)
+          ));
+          row.appendChild(h("span",{style:{color:C.accent,fontSize:"12px",fontWeight:"700"}},"Select →"));
+          resList.appendChild(row);
+        });
+        searchCard.appendChild(resList);
+      } else if(S.draftSearch.length > 1 && !S.draftSearchLoading) {
+        searchCard.appendChild(h("div",{style:{color:C.muted,fontSize:"13px",paddingTop:"10px",textAlign:"center"}},"No active MLB players found."));
+      }
+      wrap.appendChild(searchCard);
+    }
+  }
+
+  // ── My current picks this draft ──────────────────────────────────────────
+  if(S.draftMyTeamId !== null) {
+    const myPicks = (ds.picks||[]).filter(p=>p.teamId===S.draftMyTeamId);
+    if(myPicks.length > 0) {
+      wrap.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},`My Roster (${myPicks.length})`));
+      const rList = h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",overflow:"hidden",marginBottom:"16px"}});
+      myPicks.forEach((p,i) => {
+        const color = p.type==="hr" ? C.red : C.green;
+        const row = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",borderBottom:i<myPicks.length-1?`1px solid ${C.border}22`:"none"}});
+        row.appendChild(h("div",{},
+          h("div",{style:{color:C.text,fontWeight:"600",fontSize:"13px"}},p.player.name),
+          h("div",{style:{color:C.muted,fontSize:"10px",marginTop:"1px"}},`Round ${p.round}`)
+        ));
+        row.appendChild(h("span",{style:{background:color+"22",color,border:`1px solid ${color}44`,borderRadius:"4px",padding:"2px 7px",fontSize:"10px",fontWeight:"700",textTransform:"uppercase"}},p.type.toUpperCase()));
+        rList.appendChild(row);
+      });
+      wrap.appendChild(rList);
+    }
+  }
+
+  // ── Full draft board ─────────────────────────────────────────────────────
+  wrap.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"Draft Board"));
+  const boardCard = h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",overflow:"hidden",marginBottom:"8px"}});
+  const allPicks = ds.picks || [];
+  // Group by round
+  const rounds = [...new Set(ds.order.map(o=>o.round))];
+  rounds.forEach((r,ri) => {
+    const roundPicks = ds.order.filter(o=>o.round===r);
+    const roundHdr = h("div",{style:{background:C.surface,padding:"6px 14px",borderBottom:`1px solid ${C.border}22`}});
+    roundHdr.appendChild(h("span",{style:{color:C.muted,fontSize:"10px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em"}},`Round ${r}${r%2===0?" (reverse)":""}`));
+    boardCard.appendChild(roundHdr);
+    roundPicks.forEach((slot,si) => {
+      const pick = allPicks.find(p=>p.pickIdx===ds.order.indexOf(slot));
+      const team = S.teams.find(t=>t.id===slot.teamId);
+      const isCurrentSlot = !pick && ds.order.indexOf(slot)===ds.currentPickIdx;
+      const row = h("div",{style:{
+        display:"flex",justifyContent:"space-between",alignItems:"center",
+        padding:"9px 14px",
+        borderBottom:(ri<rounds.length-1||si<roundPicks.length-1)?`1px solid ${C.border}11`:"none",
+        background:isCurrentSlot?`${C.accent}11`:"transparent"
+      }});
+      const leftCol = h("div",{style:{display:"flex",alignItems:"center",gap:"10px"}});
+      leftCol.appendChild(h("span",{style:{color:C.muted,fontSize:"11px",minWidth:"22px",fontWeight:"600"}},`${ds.order.indexOf(slot)+1}.`));
+      const teamInfo = h("div",{});
+      teamInfo.appendChild(h("div",{style:{color:isCurrentSlot?C.accent:C.text,fontWeight:isCurrentSlot?"700":"500",fontSize:"12px"}},team?.name||"—"));
+      leftCol.appendChild(teamInfo);
+      row.appendChild(leftCol);
+      if(pick) {
+        const color = pick.type==="hr"?C.red:C.green;
+        const right = h("div",{style:{display:"flex",alignItems:"center",gap:"8px"}});
+        right.appendChild(h("div",{style:{textAlign:"right"}},
+          h("div",{style:{color:C.text,fontSize:"12px",fontWeight:"600"}},pick.player.name),
+          pick.player.teamAbbr?h("div",{style:{color:C.muted,fontSize:"10px"}},pick.player.teamAbbr):null
+        ));
+        right.appendChild(h("span",{style:{background:color+"22",color,border:`1px solid ${color}44`,borderRadius:"3px",padding:"1px 5px",fontSize:"9px",fontWeight:"700",textTransform:"uppercase"}},pick.type.toUpperCase()));
+        row.appendChild(right);
+      } else if(isCurrentSlot) {
+        row.appendChild(h("span",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",animation:"spin 1s linear infinite",display:"inline-block"}},"⏳"));
+      } else {
+        row.appendChild(h("span",{style:{color:C.border,fontSize:"11px"}},"–"));
+      }
+      boardCard.appendChild(row);
+    });
+  });
+  wrap.appendChild(boardCard);
+  return wrap;
+}
+
+// ── Draft Recap (post-draft) ──────────────────────────────────────────────────
+function buildDraftRecap(ds, wrap) {
+  wrap.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"4px"}},
+    h("span",{style:{fontSize:"20px"}},"🎯"),
+    h("h3",{style:{margin:"0",fontSize:"13px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.12em",color:C.muted}},"Draft Complete")
+  ));
+  wrap.appendChild(h("div",{style:{background:`${C.green}11`,border:`1px solid ${C.green}33`,borderRadius:"10px",padding:"14px 16px",marginBottom:"20px",textAlign:"center"}},
+    h("div",{style:{color:C.green,fontWeight:"800",fontSize:"16px",marginBottom:"4px"}},"✓ Draft is complete!"),
+    h("div",{style:{color:C.muted,fontSize:"12px"}},"Rosters have been saved. Head to Standings to see your team.")
+  ));
+  // Show each team's picks
+  S.teams.forEach(team => {
+    const teamPicks = (ds.picks||[]).filter(p=>p.teamId===team.id).sort((a,b)=>a.round-b.round);
+    if(!teamPicks.length) return;
+    const card = h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",overflow:"hidden",marginBottom:"10px"}});
+    card.appendChild(h("div",{style:{background:C.surface,padding:"10px 14px",borderBottom:`1px solid ${C.border}`}},
+      h("span",{style:{color:C.text,fontWeight:"700",fontSize:"13px"}},team.name),
+      team.owner?h("span",{style:{color:C.muted,fontSize:"11px",marginLeft:"6px"}},team.owner):null
+    ));
+    teamPicks.forEach((p,i) => {
+      const color = p.type==="hr"?C.red:C.green;
+      const row = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 14px",borderBottom:i<teamPicks.length-1?`1px solid ${C.border}22`:"none"}});
+      row.appendChild(h("div",{},
+        h("div",{style:{color:C.text,fontSize:"13px",fontWeight:"600"}},p.player.name),
+        h("div",{style:{color:C.muted,fontSize:"10px",marginTop:"1px"}},`Rd ${p.round}${p.player.teamAbbr?" · "+p.player.teamAbbr:""}`)
+      ));
+      row.appendChild(h("span",{style:{background:color+"22",color,border:`1px solid ${color}44`,borderRadius:"4px",padding:"2px 7px",fontSize:"10px",fontWeight:"700",textTransform:"uppercase"}},p.type.toUpperCase()));
+      card.appendChild(row);
+    });
+    wrap.appendChild(card);
+  });
+  return wrap;
 }
 
 
@@ -2355,7 +2924,7 @@ function render() {
   app.appendChild(header);
 
   // Tabs
-  const tabs=[{id:"standings",label:"🏆 Standings"},{id:"leaderboard",label:"📊 Leaderboard"},{id:"projected",label:"🔮 Projected"},{id:"scores",label:"⚾ Scores"},{id:"recent",label:"📅 Recent"},{id:"history",label:"📈 History"},{id:"rules",label:"📖 Rules"},...(S.commishUnlocked?[{id:"debug",label:"🔍 Debug"}]:[])];
+  const tabs=[{id:"standings",label:"🏆 Standings"},{id:"leaderboard",label:"📊 Leaderboard"},{id:"projected",label:"🔮 Projected"},{id:"scores",label:"⚾ Scores"},{id:"recent",label:"📅 Recent"},{id:"history",label:"📈 History"},{id:"rules",label:"📖 Rules"},{id:"draft",label:"🎯 Draft"},...(S.commishUnlocked?[{id:"debug",label:"🔍 Debug"}]:[])];
   const tabBar=h("div",{style:{borderBottom:`1px solid ${C.border}`,background:C.surface}});
   const tabInner=h("div",{style:{maxWidth:"640px",margin:"0 auto",display:"flex",padding:"0 16px",overflowX:"auto"}});
   tabs.forEach(tab=>{
@@ -2376,6 +2945,7 @@ function render() {
   else if(S.tab==="history") body.appendChild(buildHistory());
   else if(S.tab==="rules") body.appendChild(buildRules());
   else if(S.tab==="debug") body.appendChild(buildDebug());
+  else if(S.tab==="draft") body.appendChild(buildDraft());
   app.appendChild(body);
 
   if(S.selectedLogo !== null) app.appendChild(buildLogoModal());
@@ -2393,6 +2963,9 @@ function handleLogin() {
 
 // Load transactions first, THEN start listening to Firebase
 // This ensures transactions are available when onSnapshot fires
+// Subscribe to live draft state (runs independently of league data)
+subscribeDraft();
+
 loadTransactions().then(() => {
   // Now start the Firebase listener — S.transactions is populated
   onSnapshot(leagueRef, snap => {
