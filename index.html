@@ -2720,11 +2720,33 @@ function buildDraft() {
 
   // ── Pick UI (only shown when it's your turn) ─────────────────────────────
   if(isMyTurn) {
+    // Determine if this is the team's last pick and whether they have an HBP player yet
+    const myPicksSoFar = (ds.picks||[]).filter(p=>p.teamId===S.draftMyTeamId);
+    const myTotalPicks = ds.order.filter(o=>o.teamId===S.draftMyTeamId).length;
+    const picksLeft = myTotalPicks - myPicksSoFar.length;
+    const hasHBP = myPicksSoFar.some(p=>p.type==="hbp");
+    const isLastPick = picksLeft === 1;
+    const mustBeHBP = isLastPick && !hasHBP;
+
+    // If last pick and no HBP yet, force type to HBP
+    if(mustBeHBP && S.draftPickType !== "hbp") {
+      S.draftPickType = "hbp";
+    }
+
     if(S.draftConfirming) {
       // Confirm step
       const player = S.draftConfirming.player;
-      const confCard = h("div",{style:{background:C.card,border:`1px solid ${C.accent}55`,borderRadius:"12px",padding:"20px",marginBottom:"16px"}});
+      const confCard = h("div",{style:{background:C.card,border:`1px solid ${mustBeHBP?C.green+"88":C.accent+"55"}`,borderRadius:"12px",padding:"20px",marginBottom:"16px"}});
       confCard.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"12px"}},"Confirm Pick"));
+
+      // HBP required warning banner
+      if(mustBeHBP) {
+        confCard.appendChild(h("div",{style:{
+          background:C.green+"18", border:`1px solid ${C.green}44`,
+          borderRadius:"8px", padding:"10px 12px", marginBottom:"14px",
+          color:C.green, fontSize:"12px", fontWeight:"700"
+        }},"🎯 This is your last pick — must be an HBP player."));
+      }
 
       // Player info
       const plRow = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}});
@@ -2740,12 +2762,14 @@ function buildDraft() {
       ["hr","hbp"].forEach(t => {
         const active = S.draftPickType === t;
         const color = t==="hr" ? C.red : C.green;
+        const locked = mustBeHBP && t === "hr"; // HR locked out on last pick if no HBP yet
         const btn = h("button",{
-          style:{padding:"12px",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"13px",
+          style:{padding:"12px",borderRadius:"8px",cursor:locked?"not-allowed":"pointer",fontWeight:"700",fontSize:"13px",
             background:active?color+"22":C.bg,
             border:`1px solid ${active?color+"88":C.border}`,
-            color:active?color:C.muted},
-          onClick:()=>set({draftPickType:t})
+            color:active?color:locked?C.border:C.muted,
+            opacity:locked?"0.35":"1"},
+          onClick:()=>{ if(!locked) set({draftPickType:t}); }
         }, t==="hr" ? "⚾ HR Player" : "🎯 HBP Player");
         typeRow.appendChild(btn);
       });
@@ -2807,6 +2831,15 @@ function buildDraft() {
         searchCard.appendChild(h("div",{style:{color:C.muted,fontSize:"13px",paddingTop:"10px",textAlign:"center"}},"No active MLB players found."));
       }
       wrap.appendChild(searchCard);
+
+      // Last pick HBP warning on search screen
+      if(mustBeHBP) {
+        wrap.appendChild(h("div",{style:{
+          background:C.green+"18", border:`1px solid ${C.green}44`,
+          borderRadius:"10px", padding:"12px 14px", marginBottom:"12px",
+          color:C.green, fontSize:"13px", fontWeight:"700"
+        }},"🎯 Last pick — must be designated as HBP. Search or select any player below."));
+      }
 
       // ── Projection Pool Table ─────────────────────────────────────────
       const takenNames = new Set((S.draftState?.picks||[]).map(p=>p.player.name));
