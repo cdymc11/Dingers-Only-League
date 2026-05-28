@@ -3080,8 +3080,9 @@ function render() {
   if(S.showCommish&&S.cpLocal) app.appendChild(buildCommish());
 }
 
-function handleLogin() {
-  if(S.commishInput===PASS){ set({commishUnlocked:true,showCommish:true,pwError:false,cpLocal:JSON.parse(JSON.stringify(S.teams)),cpActive:0}); }
+function handleLogin(val) {
+  const v = (val !== undefined ? val : S.commishInput).trim();
+  if(v===PASS){ set({commishUnlocked:true,showCommish:true,pwError:false,cpLocal:JSON.parse(JSON.stringify(S.teams)),cpActive:0}); }
   else set({pwError:true});
 }
 
