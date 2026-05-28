@@ -2314,6 +2314,90 @@ function buildCommish() {
       txSection.appendChild(txRow);
     });
   }
+  // Manual transaction form
+  const txFormWrap = h("div",{style:{marginTop:"16px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:"8px",padding:"14px"}});
+  txFormWrap.appendChild(h("div",{style:{color:C.text,fontWeight:"700",fontSize:"13px",marginBottom:"4px"}},"Manually Record a Transaction"));
+  txFormWrap.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",lineHeight:"1.5",marginBottom:"12px"}},"Use this only if a transaction was processed outside the app, or to correct the record. Select the team, fill in both player names, and submit."));
+
+  // Team selector
+  const txTeamWrap = h("div",{style:{marginBottom:"10px"}});
+  txTeamWrap.appendChild(h("label",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:"4px"}},"Team"));
+  const txTeamSel = h("select",{style:{width:"100%",padding:"8px 10px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.text,fontSize:"13px",outline:"none"}});
+  txTeamSel.appendChild(h("option",{value:""},"— Select a team —"));
+  S.teams.forEach(t => txTeamSel.appendChild(h("option",{value:String(t.id)},t.name||`Team ${t.id}`)));
+  txTeamWrap.appendChild(txTeamSel);
+  txFormWrap.appendChild(txTeamWrap);
+
+  // Grid: dropped / added
+  const txGrid = h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px",marginBottom:"10px"}});
+  const txDropWrap = h("div",{}); txDropWrap.appendChild(h("label",{style:{color:C.red,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:"4px"}},"Dropped Player"));
+  const txDropInp = h("input",{type:"text",placeholder:"Full name",style:{width:"100%",padding:"7px 10px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.text,fontSize:"13px",boxSizing:"border-box",outline:"none"}}); txDropWrap.appendChild(txDropInp); txGrid.appendChild(txDropWrap);
+  const txAddWrap = h("div",{}); txAddWrap.appendChild(h("label",{style:{color:C.green,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:"4px"}},"Added Player"));
+  const txAddInp = h("input",{type:"text",placeholder:"Full name",style:{width:"100%",padding:"7px 10px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.text,fontSize:"13px",boxSizing:"border-box",outline:"none"}}); txAddWrap.appendChild(txAddInp); txGrid.appendChild(txAddWrap);
+  txFormWrap.appendChild(txGrid);
+
+  // Type selector
+  const txTypeWrap = h("div",{style:{marginBottom:"12px"}});
+  txTypeWrap.appendChild(h("label",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:"6px"}},"Added Player Type"));
+  const txTypeRow = h("div",{style:{display:"flex",gap:"8px"}});
+  let txType = "hr";
+  ["hr","hbp"].forEach(t => {
+    const btn = h("button",{
+      style:{flex:"1",padding:"8px",borderRadius:"6px",cursor:"pointer",fontWeight:"700",fontSize:"13px",
+        background:t==="hr"?`${C.red}22`:C.card, border:`1px solid ${t==="hr"?C.red+"55":C.border}`,
+        color:t==="hr"?C.red:C.muted},
+      onClick:()=>{
+        txType=t;
+        txTypeRow.querySelectorAll("button").forEach((b,i)=>{
+          const isActive = (i===0&&t==="hr")||(i===1&&t==="hbp");
+          const col = i===0?C.red:C.green;
+          b.style.background = isActive?`${col}22`:C.card;
+          b.style.border = `1px solid ${isActive?col+"55":C.border}`;
+          b.style.color = isActive?col:C.muted;
+        });
+      }
+    }, t==="hr"?"⚾ HR Player":"🎯 HBP Player");
+    txTypeRow.appendChild(btn);
+  });
+  txTypeWrap.appendChild(txTypeRow);
+  txFormWrap.appendChild(txTypeWrap);
+
+  // Submit
+  const txStatus = h("div",{style:{fontSize:"12px",marginBottom:"8px",fontWeight:"600"}});
+  txFormWrap.appendChild(txStatus);
+  txFormWrap.appendChild(h("button",{
+    style:{width:"100%",padding:"9px",borderRadius:"7px",cursor:"pointer",fontWeight:"700",fontSize:"13px",background:`${C.accent}18`,border:`1px solid ${C.accent}55`,color:C.accent},
+    onClick: async () => {
+      const teamId = parseInt(txTeamSel.value);
+      const dropped = txDropInp.value.trim();
+      const added = txAddInp.value.trim();
+      if(isNaN(teamId)) { txStatus.textContent="⚠️ Select a team."; txStatus.style.color=C.red; return; }
+      if(!dropped) { txStatus.textContent="⚠️ Enter the dropped player name."; txStatus.style.color=C.red; return; }
+      if(!added) { txStatus.textContent="⚠️ Enter the added player name."; txStatus.style.color=C.red; return; }
+      txStatus.textContent="Fetching stats…"; txStatus.style.color=C.muted;
+      // Fetch current stats for added player to set baseline
+      const stats = await fetchStats(added);
+      const today = new Date().toISOString().split("T")[0];
+      const tx = {
+        teamId, droppedPlayer: dropped, droppedAt: today, droppedStat: null,
+        addedPlayer: added, addedAt: today, type: txType,
+        hrBaseline: txType==="hr" ? (stats?.hr ?? 0) : null,
+        hbpBaseline: txType==="hbp" ? (stats?.hbp ?? 0) : null,
+        effectiveHR: 0, effectiveHBP: 0,
+        teamAbbr: stats?.teamAbbr || null,
+      };
+      const ok = await saveTransaction(tx);
+      if(ok) {
+        txStatus.textContent="✓ Transaction saved!"; txStatus.style.color=C.green;
+        txDropInp.value=""; txAddInp.value="";
+        setTimeout(()=>{ txStatus.textContent=""; },3000);
+      } else {
+        txStatus.textContent="❌ Failed to save. Try again."; txStatus.style.color=C.red;
+      }
+    }
+  },"Submit Transaction"));
+  txSection.appendChild(txFormWrap);
+
   panel.appendChild(txSection);
 
   // ════════════════════════════════════════════════════════════════════════
@@ -3089,7 +3173,7 @@ function buildLeagueSetup() {
   // Number of teams
   card.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"Number of Teams"));
   const teamCountWrap = h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"8px",marginBottom:"20px"}});
-  [4,6,8,10,12,14,16,18].forEach(n => {
+  [2,4,6,8,10,12,14,16].forEach(n => {
     const btn = h("button",{
       style:{padding:"10px",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"14px",
         background: S.setupTeamCount===n ? `${C.accent}22` : C.bg,
