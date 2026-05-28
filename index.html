@@ -159,7 +159,7 @@ function maybeAutoSnapshot() {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const PASS = "dingersonly";
+const PASS = "beta";
 const C = {
   bg:"#0a0f1e", surface:"#111827", card:"#1a2235", border:"#1e3a5f",
   accent:"#e8c84a", red:"#e84a4a", green:"#4ae89a", text:"#f0f4ff", muted:"#6b7fa3"
@@ -337,6 +337,7 @@ let S = {
   draftCodeInput: "",        // code entry field
   draftCodeError: "",        // error message
   draftSearch: "",           // player search input
+  draftPoolFilter: "",       // filter text for projection pool table
   draftSearchResults: [],    // MLB API search results
   draftSearchLoading: false,
   draftPickType: "hr",       // "hr" | "hbp" — type selector during pick
@@ -930,6 +931,76 @@ async function loadWeeklyRecap(startDate, endDate) {
 // ── History ───────────────────────────────────────────────────────────────────
 // Preseason projections (Steamer 2026) — HR for HR players, HBP for HBP players
 const PRESEASON_PROJ = {};
+
+// Draft player pool — top HR projections (Steamer 2026), used in draft board
+// Format: { name, hrProj, hbpProj, team, pos }
+const DRAFT_POOL = [
+  {name:"Aaron Judge",        hrProj:52, hbpProj:4,  team:"NYY", pos:"RF"},
+  {name:"Shohei Ohtani",      hrProj:47, hbpProj:6,  team:"LAD", pos:"DH"},
+  {name:"Kyle Schwarber",     hrProj:44, hbpProj:22, team:"PHI", pos:"LF"},
+  {name:"Pete Alonso",        hrProj:43, hbpProj:5,  team:"NYM", pos:"1B"},
+  {name:"Yordan Alvarez",     hrProj:42, hbpProj:4,  team:"HOU", pos:"DH"},
+  {name:"Matt Olson",         hrProj:41, hbpProj:11, team:"ATL", pos:"1B"},
+  {name:"Gunnar Henderson",   hrProj:40, hbpProj:8,  team:"BAL", pos:"SS"},
+  {name:"Bobby Witt Jr.",     hrProj:38, hbpProj:7,  team:"KC",  pos:"SS"},
+  {name:"Vladimir Guerrero Jr.",hrProj:37, hbpProj:5, team:"TOR", pos:"1B"},
+  {name:"Cal Raleigh",        hrProj:36, hbpProj:5,  team:"SEA", pos:"C"},
+  {name:"Rafael Devers",      hrProj:36, hbpProj:8,  team:"BOS", pos:"3B"},
+  {name:"Bryce Harper",       hrProj:35, hbpProj:12, team:"PHI", pos:"1B"},
+  {name:"Juan Soto",          hrProj:35, hbpProj:10, team:"NYM", pos:"RF"},
+  {name:"Julio Rodriguez",    hrProj:34, hbpProj:6,  team:"SEA", pos:"CF"},
+  {name:"Jose Ramirez",       hrProj:33, hbpProj:22, team:"CLE", pos:"3B"},
+  {name:"Fernando Tatis Jr.", hrProj:33, hbpProj:7,  team:"SD",  pos:"RF"},
+  {name:"Ketel Marte",        hrProj:32, hbpProj:5,  team:"ARI", pos:"2B"},
+  {name:"Austin Riley",       hrProj:32, hbpProj:6,  team:"ATL", pos:"3B"},
+  {name:"Corey Seager",       hrProj:31, hbpProj:4,  team:"TEX", pos:"SS"},
+  {name:"Kyle Tucker",        hrProj:31, hbpProj:8,  team:"CHC", pos:"RF"},
+  {name:"Jazz Chisholm Jr.",  hrProj:30, hbpProj:9,  team:"NYY", pos:"3B"},
+  {name:"Manny Machado",      hrProj:30, hbpProj:5,  team:"SD",  pos:"3B"},
+  {name:"Freddie Freeman",    hrProj:29, hbpProj:12, team:"LAD", pos:"1B"},
+  {name:"Teoscar Hernandez",  hrProj:29, hbpProj:7,  team:"LAD", pos:"LF"},
+  {name:"Salvador Perez",     hrProj:28, hbpProj:4,  team:"KC",  pos:"C"},
+  {name:"Brent Rooker",       hrProj:28, hbpProj:6,  team:"OAK", pos:"RF"},
+  {name:"Ronald Acuna Jr.",   hrProj:27, hbpProj:8,  team:"ATL", pos:"RF"},
+  {name:"Adolis Garcia",      hrProj:27, hbpProj:9,  team:"TEX", pos:"RF"},
+  {name:"Christian Walker",   hrProj:27, hbpProj:6,  team:"ARI", pos:"1B"},
+  {name:"James Wood",         hrProj:26, hbpProj:10, team:"WSH", pos:"LF"},
+  {name:"Elly De La Cruz",    hrProj:26, hbpProj:12, team:"CIN", pos:"SS"},
+  {name:"Max Muncy",          hrProj:26, hbpProj:8,  team:"LAD", pos:"3B"},
+  {name:"Willy Adames",       hrProj:25, hbpProj:6,  team:"SF",  pos:"SS"},
+  {name:"Eugenio Suarez",     hrProj:25, hbpProj:10, team:"ARI", pos:"3B"},
+  {name:"Jake Burger",        hrProj:25, hbpProj:5,  team:"MIA", pos:"3B"},
+  {name:"Seiya Suzuki",       hrProj:24, hbpProj:8,  team:"CHC", pos:"RF"},
+  {name:"Wyatt Langford",     hrProj:24, hbpProj:9,  team:"TEX", pos:"LF"},
+  {name:"Brandon Lowe",       hrProj:24, hbpProj:7,  team:"TB",  pos:"2B"},
+  {name:"Spencer Torkelson",  hrProj:23, hbpProj:5,  team:"DET", pos:"1B"},
+  {name:"Daulton Varsho",     hrProj:23, hbpProj:6,  team:"TOR", pos:"CF"},
+  {name:"Michael Busch",      hrProj:22, hbpProj:7,  team:"CHC", pos:"2B"},
+  {name:"CJ Abrams",          hrProj:22, hbpProj:8,  team:"WSH", pos:"SS"},
+  {name:"Junior Caminero",    hrProj:22, hbpProj:5,  team:"TB",  pos:"3B"},
+  {name:"Jo Adell",           hrProj:21, hbpProj:8,  team:"LAA", pos:"RF"},
+  {name:"Shea Langeliers",    hrProj:21, hbpProj:4,  team:"OAK", pos:"C"},
+  {name:"Nick Kurtz",         hrProj:21, hbpProj:6,  team:"OAK", pos:"1B"},
+  {name:"Heliot Ramos",       hrProj:20, hbpProj:5,  team:"SF",  pos:"RF"},
+  {name:"Riley Greene",       hrProj:20, hbpProj:9,  team:"DET", pos:"LF"},
+  {name:"Pete Crow-Armstrong",hrProj:19, hbpProj:6,  team:"CHC", pos:"CF"},
+  {name:"Jac Caglianone",     hrProj:19, hbpProj:5,  team:"KC",  pos:"1B"},
+  {name:"Ben Rice",           hrProj:18, hbpProj:7,  team:"NYY", pos:"1B"},
+  {name:"Hunter Goodman",     hrProj:18, hbpProj:4,  team:"COL", pos:"C"},
+  {name:"Byron Buxton",       hrProj:18, hbpProj:5,  team:"MIN", pos:"CF"},
+  {name:"Vinnie Pasquantino", hrProj:17, hbpProj:6,  team:"KC",  pos:"1B"},
+  {name:"Mike Trout",         hrProj:17, hbpProj:5,  team:"LAA", pos:"CF"},
+  {name:"Taylor Ward",        hrProj:17, hbpProj:8,  team:"LAA", pos:"RF"},
+  {name:"Munetaka Murakami",  hrProj:16, hbpProj:3,  team:"NYY", pos:"DH"},
+  {name:"Zach Neto",          hrProj:16, hbpProj:7,  team:"LAA", pos:"SS"},
+  {name:"Caleb Durbin",       hrProj:8,  hbpProj:12, team:"CHW", pos:"2B"},
+  {name:"Kazuma Okamoto",     hrProj:15, hbpProj:3,  team:"SF",  pos:"1B"},
+  {name:"Ty France",          hrProj:12, hbpProj:8,  team:"CIN", pos:"1B"},
+  {name:"Randy Arozarena",    hrProj:16, hbpProj:8,  team:"SEA", pos:"LF"},
+  {name:"Colson Montgomery",  hrProj:14, hbpProj:9,  team:"CHW", pos:"SS"},
+  {name:"Willson Contreras",  hrProj:14, hbpProj:5,  team:"STL", pos:"C"},
+  {name:"Terence Gore",       hrProj:2,  hbpProj:3,  team:"—",   pos:"OF"},
+];
 
 function buildProjected() {
   const TOTAL_GAMES = 162;
@@ -2154,20 +2225,7 @@ function buildCommish() {
   txMgmt.appendChild(form);
   panel.appendChild(txMgmt);
 
-  // History backfill section
-  panel.appendChild(h("div",{style:{marginTop:"24px",paddingTop:"20px",borderTop:`1px solid ${C.border}`}},
-    h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"History Backfill"),
-    h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"12px"}},"Pulls cumulative stats for every day since Opening Day and saves them as daily snapshots. Run once — takes ~5 minutes."),
-    S.backfillStatus ? h("div",{style:{color:S.backfillDone?C.green:C.accent,fontSize:"12px",marginBottom:"10px",fontWeight:"600"}},S.backfillStatus) : null,
-    h("button",{
-      style:{padding:"10px 18px",borderRadius:"8px",cursor:S.backfillRunning?"default":"pointer",fontWeight:"700",fontSize:"13px",
-        background:S.backfillRunning?"transparent":`${C.accent}22`,
-        border:`1px solid ${S.backfillRunning?C.border:C.accent+"55"}`,
-        color:S.backfillRunning?C.muted:C.accent,
-        opacity:S.backfillRunning?"0.6":"1"},
-      onClick:()=>{ if(!S.backfillRunning) backfillHistory(); }
-    }, S.backfillRunning ? "⟳ Running backfill…" : "📅 Backfill History")
-  ));
+  // History Backfill hidden in beta
 
   // ── Draft Management Section ─────────────────────────────────────────────
   const draftMgmt = h("div",{style:{marginTop:"24px",paddingTop:"20px",borderTop:`1px solid ${C.border}`}});
@@ -2602,6 +2660,26 @@ function buildDraft() {
     wrap.appendChild(claimCard);
   } else if(!isMyTurn) {
     wrap.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",textAlign:"center",padding:"8px 0 16px"}},`You're on ${myTeam?.name}. Waiting for ${currentTeam?.name} to pick…`));
+
+    // Show read-only pool while waiting
+    const takenNamesSpec = new Set((S.draftState?.picks||[]).map(p=>p.player.name));
+    const specPool = h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"12px",overflow:"hidden",marginBottom:"16px"}});
+    specPool.appendChild(h("div",{style:{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,background:C.surface,color:C.text,fontWeight:"700",fontSize:"13px"}},"📋 Available Players"));
+    const specColHdr = h("div",{style:{display:"grid",gridTemplateColumns:"28px 1fr 40px 44px 44px 50px",gap:"0",padding:"6px 12px",borderBottom:`1px solid ${C.border}22`,background:C.surface}});
+    ["#","Player","Pos","Team","HR","HBP"].forEach((lbl,i) => specColHdr.appendChild(h("div",{style:{color:C.muted,fontSize:"10px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.06em",textAlign:i>3?"center":"left"}},lbl)));
+    specPool.appendChild(specColHdr);
+    DRAFT_POOL.forEach((p,i) => {
+      const taken = takenNamesSpec.has(p.name);
+      const row = h("div",{style:{display:"grid",gridTemplateColumns:"28px 1fr 40px 44px 44px 50px",gap:"0",padding:"8px 12px",borderBottom:i<DRAFT_POOL.length-1?`1px solid ${C.border}11`:"none",opacity:taken?"0.3":"1"}});
+      row.appendChild(h("div",{style:{color:C.muted,fontSize:"11px"}},String(i+1)));
+      const nc=h("div",{}); nc.appendChild(h("div",{style:{color:taken?C.muted:C.text,fontWeight:"600",fontSize:"12px",textDecoration:taken?"line-through":"none"}},p.name)); if(taken) nc.appendChild(h("div",{style:{color:C.red,fontSize:"10px",fontWeight:"700"}},"DRAFTED")); row.appendChild(nc);
+      row.appendChild(h("div",{style:{color:C.muted,fontSize:"11px"}},p.pos||"—"));
+      row.appendChild(h("div",{style:{color:C.muted,fontSize:"11px"}},p.team||"—"));
+      row.appendChild(h("div",{style:{color:C.red,fontWeight:"700",fontSize:"12px",textAlign:"center"}},p.hrProj||"—"));
+      row.appendChild(h("div",{style:{color:C.green,fontWeight:"700",fontSize:"12px",textAlign:"center"}},p.hbpProj||"—"));
+      specPool.appendChild(row);
+    });
+    wrap.appendChild(specPool);
   }
 
   // ── Pick UI (only shown when it's your turn) ─────────────────────────────
@@ -2693,6 +2771,65 @@ function buildDraft() {
         searchCard.appendChild(h("div",{style:{color:C.muted,fontSize:"13px",paddingTop:"10px",textAlign:"center"}},"No active MLB players found."));
       }
       wrap.appendChild(searchCard);
+
+      // ── Projection Pool Table ─────────────────────────────────────────
+      const takenNames = new Set((S.draftState?.picks||[]).map(p=>p.player.name));
+      const poolCard = h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"12px",overflow:"hidden",marginBottom:"16px"}});
+      const poolHdr = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 14px",borderBottom:`1px solid ${C.border}`,background:C.surface}});
+      poolHdr.appendChild(h("div",{style:{color:C.text,fontWeight:"700",fontSize:"13px"}},"📋 Top HR Projections"));
+      // Pool search filter
+      const poolFilterInp = h("input",{style:{padding:"5px 10px",borderRadius:"6px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"12px",outline:"none",width:"120px"}});
+      poolFilterInp.placeholder = "Filter…";
+      poolFilterInp.value = S.draftPoolFilter || "";
+      poolFilterInp.addEventListener("input", e => { S.draftPoolFilter = e.target.value; renderPool(); });
+      poolHdr.appendChild(poolFilterInp);
+      poolCard.appendChild(poolHdr);
+
+      // Column headers
+      const poolColHdr = h("div",{style:{display:"grid",gridTemplateColumns:"28px 1fr 40px 44px 44px 50px",gap:"0",padding:"6px 12px",borderBottom:`1px solid ${C.border}22`,background:C.surface}});
+      ["#","Player","Pos","Team","HR","HBP"].forEach((lbl,i) => {
+        poolColHdr.appendChild(h("div",{style:{color:C.muted,fontSize:"10px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.06em",textAlign:i>3?"center":"left"}},lbl));
+      });
+      poolCard.appendChild(poolColHdr);
+
+      const poolBody = h("div",{});
+      poolCard.appendChild(poolBody);
+
+      const renderPool = () => {
+        poolBody.innerHTML = "";
+        const filter = (S.draftPoolFilter||"").toLowerCase();
+        const filtered = DRAFT_POOL.filter(p => !filter || p.name.toLowerCase().includes(filter) || p.team.toLowerCase().includes(filter) || p.pos.toLowerCase().includes(filter));
+        filtered.forEach((p, i) => {
+          const taken = takenNames.has(p.name);
+          const row = h("div",{style:{
+            display:"grid", gridTemplateColumns:"28px 1fr 40px 44px 44px 50px",
+            gap:"0", padding:"9px 12px",
+            borderBottom:i<filtered.length-1?`1px solid ${C.border}11`:"none",
+            background:taken?"transparent":"transparent",
+            opacity:taken?"0.35":"1",
+            cursor:taken?"default":"pointer",
+          }});
+          if(!taken) {
+            row.style.cursor = "pointer";
+            row.addEventListener("click", () => set({draftConfirming:{player:{name:p.name, team:p.team+" ("+p.pos+")", id:null}}, draftPickType:"hr"}));
+            row.addEventListener("mouseover", () => { row.style.background = C.surface; });
+            row.addEventListener("mouseout", () => { row.style.background = "transparent"; });
+          }
+          row.appendChild(h("div",{style:{color:C.muted,fontSize:"11px"}},String(i+1)));
+          const nameCol = h("div",{});
+          nameCol.appendChild(h("div",{style:{color:taken?C.muted:C.text,fontWeight:"600",fontSize:"12px",textDecoration:taken?"line-through":"none"}},p.name));
+          if(taken) nameCol.appendChild(h("div",{style:{color:C.red,fontSize:"10px",fontWeight:"700"}},"DRAFTED"));
+          row.appendChild(nameCol);
+          row.appendChild(h("div",{style:{color:C.muted,fontSize:"11px"}},(p.pos||"—")));
+          row.appendChild(h("div",{style:{color:C.muted,fontSize:"11px"}},(p.team||"—")));
+          row.appendChild(h("div",{style:{color:C.red,fontWeight:"700",fontSize:"12px",textAlign:"center"}},(p.hrProj||"—")));
+          row.appendChild(h("div",{style:{color:C.green,fontWeight:"700",fontSize:"12px",textAlign:"center"}},(p.hbpProj||"—")));
+          poolBody.appendChild(row);
+        });
+        if(!filtered.length) poolBody.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",padding:"14px",textAlign:"center"}},"No players match."));
+      };
+      renderPool();
+      wrap.appendChild(poolCard);
     }
   }
 
@@ -2911,7 +3048,7 @@ function render() {
   app.appendChild(header);
 
   // Tabs
-  const tabs=[{id:"standings",label:"🏆 Standings"},{id:"leaderboard",label:"📊 Leaderboard"},{id:"projected",label:"🔮 Projected"},{id:"scores",label:"⚾ Scores"},{id:"recent",label:"📅 Recent"},{id:"history",label:"📈 History"},{id:"rules",label:"📖 Rules"},{id:"draft",label:"🎯 Draft"},...(S.commishUnlocked?[{id:"debug",label:"🔍 Debug"}]:[])];
+  const tabs=[{id:"standings",label:"🏆 Standings"},{id:"leaderboard",label:"📊 Leaderboard"},{id:"projected",label:"🔮 Projected"},{id:"scores",label:"⚾ Scores"},{id:"recent",label:"📅 Recent"},{id:"history",label:"📈 History"},{id:"rules",label:"📖 Rules"},{id:"draft",label:"🎯 Draft"}];
   const tabBar=h("div",{style:{borderBottom:`1px solid ${C.border}`,background:C.surface}});
   const tabInner=h("div",{style:{maxWidth:"640px",margin:"0 auto",display:"flex",padding:"0 16px",overflowX:"auto"}});
   tabs.forEach(tab=>{
