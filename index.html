@@ -1967,7 +1967,6 @@ function buildCommish() {
   lnSection.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"League Name"));
   const lnInp = h("input",{style:{width:"100%",padding:"10px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",fontFamily:"'Bebas Neue',sans-serif",letterSpacing:"0.05em",outline:"none"}});
   lnInp.value = S.leagueName || "DINGERS ONLY";
-  lnInp.addEventListener("input", e => set({leagueName: e.target.value}));
   lnInp.addEventListener("blur", async e => {
     const newName = e.target.value.trim().toUpperCase();
     if(newName) {
@@ -1989,7 +1988,7 @@ function buildCommish() {
   // Name/owner
   const inp=(val,onInput,ph="",disabled=false)=>{
     const e=h("input",{type:"text",placeholder:ph,style:{background:C.bg,border:`1px solid ${C.border}`,borderRadius:"6px",padding:"7px 10px",color:C.text,fontSize:"13px",width:"100%",boxSizing:"border-box",outline:"none",opacity:disabled?"0.5":"1"}});
-    e.value=val; e.disabled=disabled; e.addEventListener("input",ev=>onInput(ev.target.value)); return e;
+    e.value=val; e.disabled=disabled; e.addEventListener("blur",ev=>onInput(ev.target.value)); return e;
   };
   const fields=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px",marginBottom:"16px"}});
   const nf=h("div"); nf.appendChild(h("label",{style:{color:C.muted,fontSize:"11px",textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:"4px"}},"Team Name")); nf.appendChild(inp(team.name,v=>{local[S.cpActive].name=v;set({cpLocal:local})}));
@@ -2018,8 +2017,8 @@ function buildCommish() {
     const rs=h("div",{style:{marginTop:"8px"}});
     rs.appendChild(h("div",{style:{color:C.green,fontSize:"11px",fontWeight:"700",marginBottom:"6px"}},"Add Replacement HR Player"));
     const rr=h("div",{style:{display:"flex",gap:"8px"}});
-    const ri=inp(S.cpReplHR,v=>set({cpReplHR:v}),"New player name"); ri.style.flex="1"; rr.appendChild(ri);
-    rr.appendChild(h("button",{style:{padding:"7px 14px",borderRadius:"6px",cursor:"pointer",background:C.green+"22",border:`1px solid ${C.green}44`,color:C.green,fontSize:"12px",fontWeight:"700",whiteSpace:"nowrap"},onClick:()=>{const name=S.cpReplHR.trim();if(!name)return;const today=new Date().toISOString().split("T")[0];local[S.cpActive].players.push({name,type:"hr",droppedAt:null,addedAt:today,rawHR:0,effectiveHR:0,hrBaseline:null,teamAbbr:null});set({cpLocal:local,cpReplHR:""});}},"Add"));
+    const replHRInp=h("input",{type:"text",placeholder:"New player name",style:{background:C.bg,border:`1px solid ${C.border}`,borderRadius:"6px",padding:"7px 10px",color:C.text,fontSize:"13px",flex:"1",boxSizing:"border-box",outline:"none"}}); rr.appendChild(replHRInp);
+    rr.appendChild(h("button",{style:{padding:"7px 14px",borderRadius:"6px",cursor:"pointer",background:C.green+"22",border:`1px solid ${C.green}44`,color:C.green,fontSize:"12px",fontWeight:"700",whiteSpace:"nowrap"},onClick:()=>{const name=replHRInp.value.trim();if(!name)return;const today=new Date().toISOString().split("T")[0];local[S.cpActive].players.push({name,type:"hr",droppedAt:null,addedAt:today,rawHR:0,effectiveHR:0,hrBaseline:null,teamAbbr:null});replHRInp.value="";set({cpLocal:local});}},"Add"));
     rs.appendChild(rr); hrSec.appendChild(rs);
   }
   panel.appendChild(hrSec);
@@ -2045,8 +2044,8 @@ function buildCommish() {
     const rs=h("div",{style:{marginTop:"8px"}});
     rs.appendChild(h("div",{style:{color:C.green,fontSize:"11px",fontWeight:"700",marginBottom:"6px"}},"Add Replacement HBP Player"));
     const rr=h("div",{style:{display:"flex",gap:"8px"}});
-    const ri=inp(S.cpReplHBP,v=>set({cpReplHBP:v}),"New player name"); ri.style.flex="1"; rr.appendChild(ri);
-    rr.appendChild(h("button",{style:{padding:"7px 14px",borderRadius:"6px",cursor:"pointer",background:C.green+"22",border:`1px solid ${C.green}44`,color:C.green,fontSize:"12px",fontWeight:"700",whiteSpace:"nowrap"},onClick:()=>{const name=S.cpReplHBP.trim();if(!name)return;const today=new Date().toISOString().split("T")[0];local[S.cpActive].players.push({name,type:"hbp",droppedAt:null,addedAt:today,rawHBP:0,effectiveHBP:0,hbpBaseline:null,teamAbbr:null});set({cpLocal:local,cpReplHBP:""});}},"Add"));
+    const replHBPInp=h("input",{type:"text",placeholder:"New player name",style:{background:C.bg,border:`1px solid ${C.border}`,borderRadius:"6px",padding:"7px 10px",color:C.text,fontSize:"13px",flex:"1",boxSizing:"border-box",outline:"none"}}); rr.appendChild(replHBPInp);
+    rr.appendChild(h("button",{style:{padding:"7px 14px",borderRadius:"6px",cursor:"pointer",background:C.green+"22",border:`1px solid ${C.green}44`,color:C.green,fontSize:"12px",fontWeight:"700",whiteSpace:"nowrap"},onClick:()=>{const name=replHBPInp.value.trim();if(!name)return;const today=new Date().toISOString().split("T")[0];local[S.cpActive].players.push({name,type:"hbp",droppedAt:null,addedAt:today,rawHBP:0,effectiveHBP:0,hbpBaseline:null,teamAbbr:null});replHBPInp.value="";set({cpLocal:local});}},"Add"));
     rs.appendChild(rr); hbpSec.appendChild(rs);
   }
   panel.appendChild(hbpSec);
@@ -2815,7 +2814,6 @@ function buildLeagueSetup() {
   const nameInp = h("input",{style:{width:"100%",padding:"12px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",marginBottom:"20px",outline:"none"}});
   nameInp.placeholder = "e.g. Dingers Only 2026";
   nameInp.value = S.setupLeagueName || "";
-  nameInp.addEventListener("input", e => set({setupLeagueName: e.target.value}));
   card.appendChild(nameInp);
 
   // Number of teams
@@ -2839,7 +2837,6 @@ function buildLeagueSetup() {
   pinInp.placeholder = "Choose a PIN for your league";
   pinInp.type = "password";
   pinInp.value = S.setupPIN || "";
-  pinInp.addEventListener("input", e => set({setupPIN: e.target.value}));
   card.appendChild(pinInp);
 
   // Create button
@@ -2847,8 +2844,8 @@ function buildLeagueSetup() {
     style:{width:"100%",padding:"14px",borderRadius:"10px",cursor:"pointer",fontWeight:"800",
       fontSize:"16px",background:C.accent,border:"none",color:"#000"},
     onClick: async () => {
-      const name = (S.setupLeagueName||"").trim();
-      const pin = (S.setupPIN||"").trim();
+      const name = (nameInp.value||"").trim();
+      const pin = (pinInp.value||"").trim();
       const count = S.setupTeamCount || 8;
       if(!name) { alert("Please enter a league name."); return; }
       if(!pin || pin.length < 4) { alert("Please choose a PIN (at least 4 characters)."); return; }
@@ -2901,10 +2898,9 @@ function render() {
   if(!S.commishUnlocked){
     const pwRow=h("div",{style:{display:"flex",gap:"6px",alignItems:"center"}});
     const pwInp=h("input",{type:"password",placeholder:"Commissioner PIN",style:{background:C.bg,border:`1px solid ${S.pwError?C.red:C.border}`,borderRadius:"6px",padding:"7px 10px",color:C.text,fontSize:"13px",outline:"none",width:"155px"}});
-    pwInp.value=S.commishInput;
-    pwInp.addEventListener("input",e=>set({commishInput:e.target.value,pwError:false}));
-    pwInp.addEventListener("keydown",e=>{if(e.key==="Enter")handleLogin();});
-    pwRow.append(pwInp,h("button",{style:{padding:"7px 12px",borderRadius:"6px",cursor:"pointer",background:C.accent,border:"none",color:"#000",fontWeight:"700",fontSize:"13px"},onClick:handleLogin},"Enter"));
+    pwInp.value="";
+    pwInp.addEventListener("keydown",e=>{if(e.key==="Enter")handleLogin(pwInp.value);});
+    pwRow.append(pwInp,h("button",{style:{padding:"7px 12px",borderRadius:"6px",cursor:"pointer",background:C.accent,border:"none",color:"#000",fontWeight:"700",fontSize:"13px"},onClick:()=>handleLogin(pwInp.value)},"Enter"));
     authBlock.appendChild(pwRow);
     if(S.pwError) authBlock.appendChild(h("span",{style:{color:C.red,fontSize:"12px"}},"Incorrect password"));
   } else {
