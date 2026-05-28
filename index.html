@@ -932,6 +932,55 @@ async function loadWeeklyRecap(startDate, endDate) {
 // Preseason projections (Steamer 2026) — HR for HR players, HBP for HBP players
 const PRESEASON_PROJ = {};
 
+// Corny fantasy baseball team name pool — shuffled on league creation
+const CORNY_NAMES = [
+  "Ball So Hard Academics",
+  "José Can You See",
+  "Caught Looking",
+  "The Infield Fly Guys",
+  "Pitch Please",
+  "Foul Tip Enthusiasts",
+  "No Hitters (We Try)",
+  "The Balk of the Town",
+  "Runs Batted Ew",
+  "Error Prone Rangers",
+  "The Designated Drinkers",
+  "Swing and a Prayer",
+  "Rounding Third on Life",
+  "The Intentional Walks",
+  "Stealing Signs & Hearts",
+  "Pop Fly or Die",
+  "Earned Run Averages",
+  "The Sacrifice Bunt Believers",
+  "Warning Track Power",
+  "Can of Corn Crew",
+  "Chin Music FC",
+  "The Rubber Game",
+  "Tater Tot Patrol",
+  "The Dead Ball Era",
+  "Full Count Philosophers",
+  "Caught Stealing Feelings",
+  "The Hit and Run Committee",
+  "Suicide Squeeze FC",
+  "Golden Sombrero Society",
+  "The Mendoza Line Crossers",
+  "Cleanup Hitters Anonymous",
+  "Left on Base Nation",
+  "Extra Innings Insomniacs",
+  "The Bush League All-Stars",
+  "Double Switch Sorcerers",
+  "Magic Number Crunchers",
+  "The Frozen Rope Federation",
+  "Wheelhouse Wanderers",
+  "Banging Trash Cans United",
+  "The Checked Swing Jury",
+];
+
+function getRandomTeamNames(count) {
+  const shuffled = [...CORNY_NAMES].sort(() => Math.random() - 0.5);
+  return Array.from({length: count}, (_, i) => shuffled[i % shuffled.length]);
+}
+
 // Draft player pool — top HR projections (Steamer 2026), used in draft board
 // Format: { name, hrProj, hbpProj, team, pos }
 const DRAFT_POOL = [
@@ -2031,150 +2080,217 @@ function buildTeamModal(team) {
 function buildCommish() {
   const local = S.cpLocal;
   const team = local[S.cpActive];
-  const overlay = h("div",{style:{position:"fixed",inset:"0",background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"flex-start",justifyContent:"center",zIndex:"1000",padding:"16px",overflowY:"auto"}});
-  const panel = h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"16px",padding:"28px",maxWidth:"620px",width:"100%",marginTop:"20px",marginBottom:"20px"}});
-  // League name editor
-  const lnSection = h("div",{style:{marginBottom:"20px",paddingBottom:"20px",borderBottom:`1px solid ${C.border}`}});
-  lnSection.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"League Name"));
-  const lnInp = h("input",{style:{width:"100%",padding:"10px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",fontFamily:"'Bebas Neue',sans-serif",letterSpacing:"0.05em",outline:"none"}});
-  lnInp.value = S.leagueName || "DINGERS ONLY";
-  lnInp.addEventListener("blur", async e => {
-    const newName = e.target.value.trim().toUpperCase();
-    if(newName) {
-      set({leagueName: newName});
-      await setDoc(leagueRef, { leagueName: newName }, { merge: true });
-    }
-  });
-  lnSection.appendChild(lnInp);
-  panel.appendChild(lnSection);
 
-    panel.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"20px"}},
-    h("h2",{style:{color:C.accent,fontSize:"20px",fontWeight:"800",margin:"0"}},"⚙️ Commissioner Panel"),
-    h("button",{style:{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:"22px"},onClick:()=>set({showCommish:false})},"✕")
-  ));
-  // ── Team Count Editor ───────────────────────────────────────────────────────
-  const tcSection = h("div",{style:{marginBottom:"20px",paddingBottom:"20px",borderBottom:`1px solid ${C.border}`}});
-  tcSection.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"Number of Teams"));
-  const tcRow = h("div",{style:{display:"flex",alignItems:"center",gap:"12px"}});
-  // Decrease button
-  tcRow.appendChild(h("button",{
-    style:{width:"36px",height:"36px",borderRadius:"8px",cursor:local.length<=2?"default":"pointer",
-      background:local.length<=2?"transparent":`${C.red}22`,
-      border:`1px solid ${local.length<=2?C.border:C.red+"55"}`,
-      color:local.length<=2?C.border:C.red,fontWeight:"800",fontSize:"18px",lineHeight:"1"},
-    onClick:()=>{
-      if(local.length<=2) return;
-      const updated = local.slice(0, local.length-1);
-      const newActive = Math.min(S.cpActive, updated.length-1);
-      set({cpLocal: updated, cpActive: newActive});
-    }
-  },"−"));
-  // Count display
-  tcRow.appendChild(h("div",{style:{color:C.accent,fontFamily:"'Bebas Neue',sans-serif",fontSize:"28px",minWidth:"32px",textAlign:"center"}},String(local.length)));
-  // Increase button
-  tcRow.appendChild(h("button",{
-    style:{width:"36px",height:"36px",borderRadius:"8px",cursor:local.length>=20?"default":"pointer",
-      background:local.length>=20?"transparent":`${C.green}22`,
-      border:`1px solid ${local.length>=20?C.border:C.green+"55"}`,
-      color:local.length>=20?C.border:C.green,fontWeight:"800",fontSize:"18px",lineHeight:"1"},
-    onClick:()=>{
-      if(local.length>=20) return;
-      const newId = Math.max(...local.map(t=>t.id), -1) + 1;
-      const newTeam = {id:newId,name:`Team ${local.length+1}`,owner:"",players:[],hasUsedTransaction:false};
-      set({cpLocal:[...local, newTeam]});
-    }
-  },"+"));
-  tcRow.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginLeft:"4px"}},"teams (min 2, max 20)"));
-  tcSection.appendChild(tcRow);
-  panel.appendChild(tcSection);
+  const overlay = h("div",{style:{position:"fixed",inset:"0",background:"rgba(13,35,64,0.75)",display:"flex",alignItems:"flex-start",justifyContent:"center",zIndex:"1000",padding:"16px",overflowY:"auto"}});
+  const panel = h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"16px",padding:"24px 28px",maxWidth:"640px",width:"100%",marginTop:"20px",marginBottom:"20px"}});
 
-  // Team tabs
-  const tabs=h("div",{style:{display:"flex",gap:"6px",flexWrap:"wrap",marginBottom:"20px"}});
-  local.forEach((t,i)=>tabs.appendChild(h("button",{style:{padding:"5px 12px",borderRadius:"6px",fontSize:"12px",fontWeight:"600",cursor:"pointer",background:S.cpActive===i?C.accent:C.bg,color:S.cpActive===i?"#ffffff":C.muted,border:`1px solid ${S.cpActive===i?C.accent:C.border}`},onClick:()=>set({cpActive:i,cpReplHR:"",cpReplHBP:""})},t.name||`Team ${i+1}`)));
-  panel.appendChild(tabs);
-  // Name/owner
-  const inp=(val,onInput,ph="",disabled=false)=>{
+  // ── Helper: section wrapper with header ──────────────────────────────────
+  const section = (label, emoji, borderTop=true) => {
+    const wrap = h("div",{style:{marginTop:borderTop?"28px":"0",paddingTop:borderTop?"24px":"0",borderTop:borderTop?`1px solid ${C.border}`:"none"}});
+    const hdr = h("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"6px"}});
+    hdr.appendChild(h("span",{style:{fontSize:"16px"}},emoji));
+    hdr.appendChild(h("div",{style:{color:C.text,fontWeight:"800",fontSize:"14px",letterSpacing:"0.02em"}},label));
+    wrap.appendChild(hdr);
+    return wrap;
+  };
+
+  const note = (txt) => h("div",{style:{color:C.muted,fontSize:"12px",lineHeight:"1.5",marginBottom:"14px"}},txt);
+  const inp = (val,onInput,ph="",disabled=false) => {
     const e=h("input",{type:"text",placeholder:ph,style:{background:C.bg,border:`1px solid ${C.border}`,borderRadius:"6px",padding:"7px 10px",color:C.text,fontSize:"13px",width:"100%",boxSizing:"border-box",outline:"none",opacity:disabled?"0.5":"1"}});
     e.value=val; e.disabled=disabled; e.addEventListener("blur",ev=>onInput(ev.target.value)); return e;
   };
-  const fields=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px",marginBottom:"16px"}});
+
+  // ════════════════════════════════════════════════════════════════════════
+  // HEADER
+  // ════════════════════════════════════════════════════════════════════════
+  const hdrRow = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"20px",paddingBottom:"20px",borderBottom:`1px solid ${C.border}`}});
+  hdrRow.appendChild(h("div",{},
+    h("h2",{style:{color:C.accent,fontSize:"20px",fontWeight:"800",margin:"0",letterSpacing:"0.02em"}},"⚙️ Commissioner Panel"),
+    h("div",{style:{color:C.muted,fontSize:"12px",marginTop:"3px"}},"Changes are local until you hit Save")
+  ));
+  hdrRow.appendChild(h("button",{style:{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:"22px",lineHeight:"1"},onClick:()=>set({showCommish:false})},"✕"));
+  panel.appendChild(hdrRow);
+
+  // ════════════════════════════════════════════════════════════════════════
+  // SECTION 1 — LEAGUE SETTINGS
+  // ════════════════════════════════════════════════════════════════════════
+  const leagueSection = section("League Settings","🏟️", false);
+  leagueSection.appendChild(note("Edit the league name and adjust the number of teams. Changes take effect when you hit Save."));
+
+  // League name
+  leagueSection.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"6px"}},"League Name"));
+  const lnInp = h("input",{style:{width:"100%",padding:"10px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",fontFamily:"'Bebas Neue',sans-serif",letterSpacing:"0.05em",outline:"none",marginBottom:"16px",boxSizing:"border-box"}});
+  lnInp.value = S.leagueName || "DINGERS ONLY";
+  lnInp.addEventListener("blur", async e => {
+    const newName = e.target.value.trim().toUpperCase();
+    if(newName) { set({leagueName: newName}); await setDoc(leagueRef, { leagueName: newName }, { merge: true }); }
+  });
+  leagueSection.appendChild(lnInp);
+
+  // Team count
+  leagueSection.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"Number of Teams"));
+  const tcRow = h("div",{style:{display:"flex",alignItems:"center",gap:"12px",marginBottom:"6px"}});
+  tcRow.appendChild(h("button",{
+    style:{width:"36px",height:"36px",borderRadius:"8px",cursor:local.length<=2?"default":"pointer",
+      background:local.length<=2?"transparent":`${C.red}22`,border:`1px solid ${local.length<=2?C.border:C.red+"55"}`,
+      color:local.length<=2?C.border:C.red,fontWeight:"800",fontSize:"18px",lineHeight:"1"},
+    onClick:()=>{ if(local.length<=2) return; const updated=local.slice(0,local.length-1); set({cpLocal:updated,cpActive:Math.min(S.cpActive,updated.length-1)}); }
+  },"−"));
+  tcRow.appendChild(h("div",{style:{color:C.accent,fontFamily:"'Bebas Neue',sans-serif",fontSize:"28px",minWidth:"32px",textAlign:"center"}},String(local.length)));
+  tcRow.appendChild(h("button",{
+    style:{width:"36px",height:"36px",borderRadius:"8px",cursor:local.length>=20?"default":"pointer",
+      background:local.length>=20?"transparent":`${C.green}22`,border:`1px solid ${local.length>=20?C.border:C.green+"55"}`,
+      color:local.length>=20?C.border:C.green,fontWeight:"800",fontSize:"18px",lineHeight:"1"},
+    onClick:()=>{ if(local.length>=20) return; const newId=Math.max(...local.map(t=>t.id),-1)+1; set({cpLocal:[...local,{id:newId,name:getRandomTeamNames(local.length+1)[local.length],owner:"",players:[],hasUsedTransaction:false}]}); }
+  },"+"));
+  tcRow.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginLeft:"4px"}},"teams"));
+  leagueSection.appendChild(tcRow);
+  panel.appendChild(leagueSection);
+
+  // ════════════════════════════════════════════════════════════════════════
+  // SECTION 2 — TEAM ROSTER EDITOR
+  // ════════════════════════════════════════════════════════════════════════
+  const rosterSection = section("Team Roster Editor","📋");
+  rosterSection.appendChild(note("Select a team below to edit their name, owner, and players. The number next to each player is their current stat total — you can manually override it if needed."));
+
+  // Team tabs
+  const tabs = h("div",{style:{display:"flex",gap:"6px",flexWrap:"wrap",marginBottom:"16px"}});
+  local.forEach((t,i)=>tabs.appendChild(h("button",{
+    style:{padding:"5px 12px",borderRadius:"6px",fontSize:"12px",fontWeight:"600",cursor:"pointer",
+      background:S.cpActive===i?C.accent:C.bg,color:S.cpActive===i?"#ffffff":C.muted,
+      border:`1px solid ${S.cpActive===i?C.accent:C.border}`},
+    onClick:()=>set({cpActive:i})
+  },t.name||`Team ${i+1}`)));
+  rosterSection.appendChild(tabs);
+
+  // Transaction used badge
+  if(team.hasUsedTransaction) {
+    rosterSection.appendChild(h("div",{style:{padding:"8px 12px",background:`${C.accent}11`,border:`1px solid ${C.accent}33`,borderRadius:"8px",fontSize:"12px",color:C.muted,marginBottom:"12px"}},"⚡ This team has used their transaction — roster is locked for further changes."));
+  }
+
+  // Name / owner fields
+  const fields = h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px",marginBottom:"16px"}});
   const nf=h("div"); nf.appendChild(h("label",{style:{color:C.muted,fontSize:"11px",textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:"4px"}},"Team Name")); nf.appendChild(inp(team.name,v=>{local[S.cpActive].name=v;set({cpLocal:local})}));
-  const of=h("div"); of.appendChild(h("label",{style:{color:C.muted,fontSize:"11px",textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:"4px"}},"Owner")); of.appendChild(inp(team.owner,v=>{local[S.cpActive].owner=v;set({cpLocal:local})},"Owner"));
-  fields.append(nf,of); panel.appendChild(fields);
+  const of=h("div"); of.appendChild(h("label",{style:{color:C.muted,fontSize:"11px",textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:"4px"}},"Owner")); of.appendChild(inp(team.owner,v=>{local[S.cpActive].owner=v;set({cpLocal:local})},"Owner name"));
+  fields.append(nf,of);
+  rosterSection.appendChild(fields);
+
   // HR Players
-  const hrSec=h("div",{style:{marginBottom:"12px"}});
-  hrSec.appendChild(h("div",{style:{color:C.red,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"8px"}},"HR Players (7)"));
-  const hrPlayers=team.players.filter(p=>p.type==="hr");
-  hrPlayers.forEach((p,ri)=>{
-    const absIdx=team.players.indexOf(p);
-    const row=h("div",{style:{display:"flex",gap:"8px",alignItems:"center",marginBottom:"8px"}});
-    const ni=inp(p.name,v=>{local[S.cpActive].players[absIdx].name=v;set({cpLocal:local})},`HR Player ${ri+1}`,!!p.droppedAt);
+  const hrSub = h("div",{style:{marginBottom:"14px"}});
+  hrSub.appendChild(h("div",{style:{color:C.red,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"6px"}},"⚾ HR Players"));
+  const hrPlayers = team.players.filter(p=>p.type==="hr");
+  hrPlayers.forEach((p,ri) => {
+    const absIdx = team.players.indexOf(p);
+    const row = h("div",{style:{display:"flex",gap:"8px",alignItems:"center",marginBottom:"6px"}});
+    const ni = inp(p.name,v=>{local[S.cpActive].players[absIdx].name=v;set({cpLocal:local})},`HR Player ${ri+1}`,!!p.droppedAt);
     ni.style.flex="1"; row.appendChild(ni);
-    const hrInp = h("input",{type:"number",style:{width:"48px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:"4px",padding:"4px 6px",color:C.red,fontSize:"12px",fontWeight:"700",textAlign:"center"}});
+    const hrInp = h("input",{type:"number",style:{width:"52px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:"6px",padding:"5px 6px",color:C.red,fontSize:"13px",fontWeight:"700",textAlign:"center",outline:"none"}});
     hrInp.value = p.effectiveHR??0;
     hrInp.addEventListener("change",ev=>{const v=Math.max(0,parseInt(ev.target.value)||0);local[S.cpActive].players[absIdx].effectiveHR=v;set({cpLocal:local});});
     row.appendChild(hrInp);
-    if(!team.hasUsedTransaction&&!p.droppedAt) row.appendChild(h("button",{style:{padding:"4px 8px",fontSize:"11px",borderRadius:"4px",cursor:"pointer",background:"#e84a4a22",border:"1px solid #e84a4a44",color:C.red,whiteSpace:"nowrap"},onClick:()=>{const today=new Date().toISOString().split("T")[0];local[S.cpActive].players[absIdx].droppedAt=today;local[S.cpActive].hasUsedTransaction=true;set({cpLocal:local});}},"Drop"));
+    if(!team.hasUsedTransaction&&!p.droppedAt) row.appendChild(h("button",{
+      style:{padding:"4px 10px",fontSize:"11px",borderRadius:"5px",cursor:"pointer",background:`${C.red}18`,border:`1px solid ${C.red}44`,color:C.red,whiteSpace:"nowrap",fontWeight:"600"},
+      onClick:()=>{const today=new Date().toISOString().split("T")[0];local[S.cpActive].players[absIdx].droppedAt=today;local[S.cpActive].hasUsedTransaction=true;set({cpLocal:local});}
+    },"Drop"));
     if(p.droppedAt) row.appendChild(h("span",{style:{fontSize:"11px",color:C.muted,whiteSpace:"nowrap"}},"dropped"));
     if(p.addedAt) row.appendChild(h("span",{style:{fontSize:"11px",color:C.green,whiteSpace:"nowrap"}},"added"));
-    hrSec.appendChild(row);
+    hrSub.appendChild(row);
   });
+  // Replacement HR
   const drHR=hrPlayers.some(p=>p.droppedAt), addHR=team.players.some(p=>p.type==="hr"&&p.addedAt);
   if(drHR&&!addHR){
-    const rs=h("div",{style:{marginTop:"8px"}});
-    rs.appendChild(h("div",{style:{color:C.green,fontSize:"11px",fontWeight:"700",marginBottom:"6px"}},"Add Replacement HR Player"));
+    const rs=h("div",{style:{marginTop:"10px",background:`${C.green}0a`,border:`1px solid ${C.green}33`,borderRadius:"8px",padding:"12px"}});
+    rs.appendChild(h("div",{style:{color:C.green,fontSize:"12px",fontWeight:"700",marginBottom:"4px"}},"✚ Add Replacement HR Player"));
+    rs.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginBottom:"8px"}},"Type the new player's full MLB name, then click Add. Their HR count will start from 0 (baseline locked at time of add)."));
     const rr=h("div",{style:{display:"flex",gap:"8px"}});
-    const replHRInp=h("input",{type:"text",placeholder:"New player name",style:{background:C.bg,border:`1px solid ${C.border}`,borderRadius:"6px",padding:"7px 10px",color:C.text,fontSize:"13px",flex:"1",boxSizing:"border-box",outline:"none"}}); rr.appendChild(replHRInp);
-    rr.appendChild(h("button",{style:{padding:"7px 14px",borderRadius:"6px",cursor:"pointer",background:C.green+"22",border:`1px solid ${C.green}44`,color:C.green,fontSize:"12px",fontWeight:"700",whiteSpace:"nowrap"},onClick:()=>{const name=replHRInp.value.trim();if(!name)return;const today=new Date().toISOString().split("T")[0];local[S.cpActive].players.push({name,type:"hr",droppedAt:null,addedAt:today,rawHR:0,effectiveHR:0,hrBaseline:null,teamAbbr:null});replHRInp.value="";set({cpLocal:local});}},"Add"));
-    rs.appendChild(rr); hrSec.appendChild(rs);
+    const replHRInp=h("input",{type:"text",placeholder:"Full player name (e.g. Aaron Judge)",style:{background:C.bg,border:`1px solid ${C.border}`,borderRadius:"6px",padding:"7px 10px",color:C.text,fontSize:"13px",flex:"1",boxSizing:"border-box",outline:"none"}}); rr.appendChild(replHRInp);
+    rr.appendChild(h("button",{style:{padding:"7px 16px",borderRadius:"6px",cursor:"pointer",background:C.green+"22",border:`1px solid ${C.green}44`,color:C.green,fontSize:"12px",fontWeight:"700",whiteSpace:"nowrap"},
+      onClick:()=>{const name=replHRInp.value.trim();if(!name)return;const today=new Date().toISOString().split("T")[0];local[S.cpActive].players.push({name,type:"hr",droppedAt:null,addedAt:today,rawHR:0,effectiveHR:0,hrBaseline:null,teamAbbr:null});replHRInp.value="";set({cpLocal:local});}},"Add"));
+    rs.appendChild(rr); hrSub.appendChild(rs);
   }
-  panel.appendChild(hrSec);
-  // HBP
-  const hbpSec=h("div",{style:{marginBottom:"20px"}});
-  hbpSec.appendChild(h("div",{style:{color:C.green,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"8px"}},"HBP Player (1)"));
-  const hbpP=team.players.find(p=>p.type==="hbp");
+  rosterSection.appendChild(hrSub);
+
+  // HBP Player
+  const hbpSub = h("div",{style:{marginBottom:"16px"}});
+  hbpSub.appendChild(h("div",{style:{color:C.green,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"6px"}},"🎯 HBP Player"));
+  const hbpP = team.players.find(p=>p.type==="hbp");
   if(hbpP){
     const absIdx=team.players.indexOf(hbpP);
     const row=h("div",{style:{display:"flex",gap:"8px",alignItems:"center"}});
     const hi=inp(hbpP.name,v=>{local[S.cpActive].players[absIdx].name=v;set({cpLocal:local})},"HBP Player",!!hbpP.droppedAt);
     hi.style.flex="1"; row.appendChild(hi);
-    const hbpInp = h("input",{type:"number",style:{width:"48px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:"4px",padding:"4px 6px",color:C.green,fontSize:"12px",fontWeight:"700",textAlign:"center"}});
-    hbpInp.value = hbpP.effectiveHBP??0;
+    const hbpInp=h("input",{type:"number",style:{width:"52px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:"6px",padding:"5px 6px",color:C.green,fontSize:"13px",fontWeight:"700",textAlign:"center",outline:"none"}});
+    hbpInp.value=hbpP.effectiveHBP??0;
     hbpInp.addEventListener("change",ev=>{const v=Math.max(0,parseInt(ev.target.value)||0);local[S.cpActive].players[absIdx].effectiveHBP=v;set({cpLocal:local});});
     row.appendChild(hbpInp);
-    if(!team.hasUsedTransaction&&!hbpP.droppedAt) row.appendChild(h("button",{style:{padding:"4px 8px",fontSize:"11px",borderRadius:"4px",cursor:"pointer",background:"#e84a4a22",border:"1px solid #e84a4a44",color:C.red,whiteSpace:"nowrap"},onClick:()=>{const today=new Date().toISOString().split("T")[0];local[S.cpActive].players[absIdx].droppedAt=today;local[S.cpActive].hasUsedTransaction=true;set({cpLocal:local});}},"Drop"));
+    if(!team.hasUsedTransaction&&!hbpP.droppedAt) row.appendChild(h("button",{
+      style:{padding:"4px 10px",fontSize:"11px",borderRadius:"5px",cursor:"pointer",background:`${C.red}18`,border:`1px solid ${C.red}44`,color:C.red,whiteSpace:"nowrap",fontWeight:"600"},
+      onClick:()=>{const today=new Date().toISOString().split("T")[0];local[S.cpActive].players[absIdx].droppedAt=today;local[S.cpActive].hasUsedTransaction=true;set({cpLocal:local});}
+    },"Drop"));
     if(hbpP.droppedAt) row.appendChild(h("span",{style:{fontSize:"11px",color:C.muted,whiteSpace:"nowrap"}},"dropped"));
-    hbpSec.appendChild(row);
+    hbpSub.appendChild(row);
   }
   const drHBP=!!hbpP?.droppedAt, addHBP=team.players.some(p=>p.type==="hbp"&&p.addedAt);
   if(drHBP&&!addHBP){
-    const rs=h("div",{style:{marginTop:"8px"}});
-    rs.appendChild(h("div",{style:{color:C.green,fontSize:"11px",fontWeight:"700",marginBottom:"6px"}},"Add Replacement HBP Player"));
+    const rs=h("div",{style:{marginTop:"10px",background:`${C.green}0a`,border:`1px solid ${C.green}33`,borderRadius:"8px",padding:"12px"}});
+    rs.appendChild(h("div",{style:{color:C.green,fontSize:"12px",fontWeight:"700",marginBottom:"4px"}},"✚ Add Replacement HBP Player"));
+    rs.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginBottom:"8px"}},"Type the new player's full MLB name, then click Add. Their HBP count will start from 0 (baseline locked at time of add)."));
     const rr=h("div",{style:{display:"flex",gap:"8px"}});
-    const replHBPInp=h("input",{type:"text",placeholder:"New player name",style:{background:C.bg,border:`1px solid ${C.border}`,borderRadius:"6px",padding:"7px 10px",color:C.text,fontSize:"13px",flex:"1",boxSizing:"border-box",outline:"none"}}); rr.appendChild(replHBPInp);
-    rr.appendChild(h("button",{style:{padding:"7px 14px",borderRadius:"6px",cursor:"pointer",background:C.green+"22",border:`1px solid ${C.green}44`,color:C.green,fontSize:"12px",fontWeight:"700",whiteSpace:"nowrap"},onClick:()=>{const name=replHBPInp.value.trim();if(!name)return;const today=new Date().toISOString().split("T")[0];local[S.cpActive].players.push({name,type:"hbp",droppedAt:null,addedAt:today,rawHBP:0,effectiveHBP:0,hbpBaseline:null,teamAbbr:null});replHBPInp.value="";set({cpLocal:local});}},"Add"));
-    rs.appendChild(rr); hbpSec.appendChild(rs);
+    const replHBPInp=h("input",{type:"text",placeholder:"Full player name (e.g. Jose Ramirez)",style:{background:C.bg,border:`1px solid ${C.border}`,borderRadius:"6px",padding:"7px 10px",color:C.text,fontSize:"13px",flex:"1",boxSizing:"border-box",outline:"none"}}); rr.appendChild(replHBPInp);
+    rr.appendChild(h("button",{style:{padding:"7px 16px",borderRadius:"6px",cursor:"pointer",background:C.green+"22",border:`1px solid ${C.green}44`,color:C.green,fontSize:"12px",fontWeight:"700",whiteSpace:"nowrap"},
+      onClick:()=>{const name=replHBPInp.value.trim();if(!name)return;const today=new Date().toISOString().split("T")[0];local[S.cpActive].players.push({name,type:"hbp",droppedAt:null,addedAt:today,rawHBP:0,effectiveHBP:0,hbpBaseline:null,teamAbbr:null});replHBPInp.value="";set({cpLocal:local});}},"Add"));
+    rs.appendChild(rr); hbpSub.appendChild(rs);
   }
-  panel.appendChild(hbpSec);
-  // Actions
-  if(S.cpStatus) panel.appendChild(h("div",{style:{color:C.green,fontSize:"13px",marginBottom:"12px"}},S.cpStatus));
-  const actions=h("div",{style:{display:"flex",gap:"10px",flexWrap:"wrap",alignItems:"center"}});
-  actions.appendChild(h("button",{style:{padding:"10px 18px",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"13px",background:`${C.accent}22`,border:`1px solid ${C.accent}55`,color:C.accent,opacity:S.cpRefreshing?"0.6":"1"},onClick:async()=>{
-    set({cpRefreshing:true,cpStatus:"Fetching live MLB stats…"});
-    const updated=JSON.parse(JSON.stringify(local));
-    for(const t of updated){for(const p of t.players){if(!p.name?.trim())continue;const s=await fetchStats(p.name);if(!s)continue;if(p.type==="hr"&&!p.droppedAt){if(p.addedAt){if(p.hrBaseline===null)p.hrBaseline=s.hr;p.effectiveHR=Math.max(0,s.hr-p.hrBaseline);}else p.effectiveHR=s.hr;}if(p.type==="hbp"&&!p.droppedAt){if(p.addedAt){if(p.hbpBaseline===null)p.hbpBaseline=s.hbp;p.effectiveHBP=Math.max(0,s.hbp-p.hbpBaseline);}else p.effectiveHBP=s.hbp;}if(s.teamAbbr)p.teamAbbr=s.teamAbbr;}}
-    set({cpLocal:updated,cpRefreshing:false,cpStatus:"✓ Stats updated!"});
-    setTimeout(()=>set({cpStatus:""}),3000);
-  }},S.cpRefreshing?"⟳ Refreshing…":"⟳ Refresh Live Stats"));
-  actions.appendChild(h("button",{style:{padding:"10px 18px",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"13px",background:C.accent,border:"none",color:"#ffffff"},onClick:async()=>{await saveToFirebase(local);set({cpStatus:"✓ Saved!"});setTimeout(()=>set({cpStatus:""}),2000);}},  "💾 Save"));
-  panel.appendChild(actions);
+  rosterSection.appendChild(hbpSub);
 
-  // Transaction Management Section
-  const txMgmt = h("div",{style:{marginTop:"24px",paddingTop:"20px",borderTop:`1px solid ${C.border}`}});
-  txMgmt.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"12px"}},"Transaction Management"));
-  txMgmt.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"12px"}},"Add or remove transactions. These are stored separately and can never be overwritten by stat refreshes."));
-  // List existing transactions
-  S.transactions.forEach(tx => {
+  // Save / Refresh actions
+  const actNote = h("div",{style:{background:`${C.accent}0d`,border:`1px solid ${C.accent}33`,borderRadius:"8px",padding:"10px 12px",marginBottom:"12px",fontSize:"12px",color:C.muted,lineHeight:"1.5"}});
+  actNote.appendChild(h("div",{style:{color:C.accent,fontWeight:"700",fontSize:"12px",marginBottom:"2px"}},"💾 Remember to Save"));
+  actNote.appendChild(document.createTextNode("All edits above are local until you click Save. Refresh Live Stats pulls current MLB numbers for every player but does not save — hit Save afterward to commit."));
+  rosterSection.appendChild(actNote);
+  if(S.cpStatus) rosterSection.appendChild(h("div",{style:{color:C.green,fontSize:"13px",fontWeight:"600",marginBottom:"10px"}},S.cpStatus));
+  const actions=h("div",{style:{display:"flex",gap:"10px",flexWrap:"wrap"}});
+  actions.appendChild(h("button",{
+    style:{padding:"10px 20px",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"13px",
+      background:`${C.accent}18`,border:`1px solid ${C.accent}55`,color:C.accent,opacity:S.cpRefreshing?"0.6":"1"},
+    onClick:async()=>{
+      set({cpRefreshing:true,cpStatus:"Fetching live MLB stats…"});
+      const updated=JSON.parse(JSON.stringify(local));
+      for(const t of updated){for(const p of t.players){if(!p.name?.trim())continue;const s=await fetchStats(p.name);if(!s)continue;if(p.type==="hr"&&!p.droppedAt){if(p.addedAt){if(p.hrBaseline===null)p.hrBaseline=s.hr;p.effectiveHR=Math.max(0,s.hr-p.hrBaseline);}else p.effectiveHR=s.hr;}if(p.type==="hbp"&&!p.droppedAt){if(p.addedAt){if(p.hbpBaseline===null)p.hbpBaseline=s.hbp;p.effectiveHBP=Math.max(0,s.hbp-p.hbpBaseline);}else p.effectiveHBP=s.hbp;}if(s.teamAbbr)p.teamAbbr=s.teamAbbr;}}
+      set({cpLocal:updated,cpRefreshing:false,cpStatus:"✓ Stats updated — hit Save to commit."});
+      setTimeout(()=>set({cpStatus:""}),5000);
+    }
+  },S.cpRefreshing?"⟳ Refreshing…":"⟳ Refresh Live Stats"));
+  actions.appendChild(h("button",{
+    style:{padding:"10px 24px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"13px",background:C.accent,border:"none",color:"#ffffff"},
+    onClick:async()=>{await saveToFirebase(local);set({cpStatus:"✓ Saved!"});setTimeout(()=>set({cpStatus:""}),2000);}
+  },"💾 Save"));
+  rosterSection.appendChild(actions);
+  panel.appendChild(rosterSection);
+
+  // ════════════════════════════════════════════════════════════════════════
+  // SECTION 3 — HOW TRANSACTIONS WORK
+  // ════════════════════════════════════════════════════════════════════════
+  const txSection = section("Transactions","🔄");
+  txSection.appendChild(h("div",{style:{background:`${C.accent}0d`,border:`1px solid ${C.accent}22`,borderRadius:"8px",padding:"12px 14px",marginBottom:"14px"}},
+    h("div",{style:{color:C.text,fontWeight:"700",fontSize:"12px",marginBottom:"6px"}},"How transactions work:"),
+    h("div",{style:{color:C.muted,fontSize:"12px",lineHeight:"1.6"}},
+      "Each team gets one transaction per season. To process one: " +
+      "(1) Select the team above, " +
+      "(2) click Drop next to the player being replaced, " +
+      "(3) enter the replacement player's name and click Add, " +
+      "(4) click Save. " +
+      "The replacement player's stats will count from 0 starting on the date they were added. " +
+      "A team's transaction is burned once Drop is used — it cannot be undone."
+    )
+  ));
+
+  // Existing transactions
+  txSection.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"Transaction History"));
+  if(S.transactions.length === 0) {
+    txSection.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",padding:"10px 0"}},"No transactions recorded yet."));
+  } else {
+    S.transactions.forEach(tx => {
       const txRow = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"10px 14px",marginBottom:"8px",border:`1px solid ${C.border}`}});
       const teamName = S.teams.find(t=>t.id===tx.teamId)?.name || `Team ${tx.teamId}`;
       txRow.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"}},
@@ -2190,158 +2306,87 @@ function buildCommish() {
           h("span",{style:{color:C.green,fontSize:"10px",fontWeight:"700",background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:"3px",padding:"1px 6px"}},"ADD"),
           h("span",{style:{color:C.muted,fontSize:"12px"}},`${tx.addedPlayer} (baseline: ${tx.hrBaseline??tx.hbpBaseline??0})`)
         ),
-        h("button",{style:{padding:"3px 10px",borderRadius:"4px",cursor:"pointer",background:"#e84a4a22",border:"1px solid #e84a4a44",color:C.red,fontSize:"11px",fontWeight:"700"},
-          onClick:async()=>{
-            const txId = `${tx.teamId}_${tx.addedPlayer.replace(/[^a-zA-Z0-9]/g,"_")}`;
-            await deleteTransaction(txId);
-          }
+        h("button",{
+          style:{padding:"3px 10px",borderRadius:"4px",cursor:"pointer",background:`${C.red}18`,border:`1px solid ${C.red}44`,color:C.red,fontSize:"11px",fontWeight:"700"},
+          onClick:async()=>{ const txId=`${tx.teamId}_${tx.addedPlayer.replace(/[^a-zA-Z0-9]/g,"_")}`; await deleteTransaction(txId); }
         },"Remove")
       ));
-    txMgmt.appendChild(txRow);
-  });
-  // Add new transaction form
-  const form = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"12px 14px",border:`1px solid ${C.border}`,marginTop:"8px"}});
-      form.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",marginBottom:"10px"}},"Add New Transaction"));
-      // Team selector
-      const teamSel = h("select",{style:{width:"100%",padding:"7px 10px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.text,fontSize:"12px",marginBottom:"8px"}});
-      teamSel.appendChild(h("option",{value:""},"Select team…"));
-      S.teams.forEach(t => teamSel.appendChild(h("option",{value:t.id},t.name)));
-      form.appendChild(teamSel);
-      // Dropped player
-      const dropInp = h("input",{style:{width:"100%",padding:"7px 10px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.text,fontSize:"12px",marginBottom:"8px"}});
-      dropInp.placeholder = "Dropped player name";
-      form.appendChild(dropInp);
-      // Dropped stat
-      const dropStat = h("input",{style:{width:"100%",padding:"7px 10px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.text,fontSize:"12px",marginBottom:"8px"}});
-      dropStat.placeholder = "Stat at drop (e.g. 4 HR)";
-      form.appendChild(dropStat);
-      // Added player
-      const addInp = h("input",{style:{width:"100%",padding:"7px 10px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.text,fontSize:"12px",marginBottom:"8px"}});
-      addInp.placeholder = "Added player name";
-      form.appendChild(addInp);
-      // Type
-      const typeSel = h("select",{style:{width:"100%",padding:"7px 10px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.text,fontSize:"12px",marginBottom:"8px"}});
-      typeSel.appendChild(h("option",{value:"hr"},"HR Player"));
-      typeSel.appendChild(h("option",{value:"hbp"},"HBP Player"));
-      form.appendChild(typeSel);
-      // Date
-      const dateInp = h("input",{style:{width:"100%",padding:"7px 10px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.text,fontSize:"12px",marginBottom:"8px"}});
-      dateInp.placeholder = "Transaction date (YYYY-MM-DD)";
-      dateInp.value = new Date().toISOString().split("T")[0];
-      form.appendChild(dateInp);
-      // Baseline
-      const baseInp = h("input",{type:"number",style:{width:"100%",padding:"7px 10px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.text,fontSize:"12px",marginBottom:"12px"}});
-      baseInp.placeholder = "HR/HBP baseline at time of add";
-      baseInp.min = "0";
-      form.appendChild(baseInp);
-      // Save button
-      form.appendChild(h("button",{
-        style:{width:"100%",padding:"9px",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"13px",background:`${C.green}22`,border:`1px solid ${C.green}44`,color:C.green},
-        onClick:async()=>{
-          const teamId = parseInt(teamSel.value);
-          const dropped = dropInp.value.trim();
-          const added = addInp.value.trim();
-          const date = dateInp.value.trim();
-          const baseline = parseInt(baseInp.value)||0;
-          const type = typeSel.value;
-          const droppedStatVal = dropStat.value.trim();
-          if(isNaN(teamId)||!dropped||!added||!date){ alert("Please fill in all fields."); return; }
-          const tx = {
-            teamId, droppedPlayer:dropped, droppedAt:date, droppedStat:droppedStatVal,
-            addedPlayer:added, addedAt:date, type,
-            hrBaseline: type==="hr" ? baseline : null,
-            hbpBaseline: type==="hbp" ? baseline : null,
-            effectiveHR:0, effectiveHBP:0, teamAbbr:null
-          };
-          const ok = await saveTransaction(tx);
-          if(ok){ dropInp.value=""; addInp.value=""; baseInp.value=""; dropStat.value=""; set({cpStatus:"✓ Transaction saved!"}); setTimeout(()=>set({cpStatus:""}),3000); }
-          else { alert("Failed to save transaction. Check console."); }
-        }
-      },"💾 Save Transaction"));
-  txMgmt.appendChild(form);
-  panel.appendChild(txMgmt);
+      txSection.appendChild(txRow);
+    });
+  }
+  panel.appendChild(txSection);
 
-  // History Backfill hidden in beta
+  // ════════════════════════════════════════════════════════════════════════
+  // SECTION 4 — DRAFT MANAGEMENT
+  // ════════════════════════════════════════════════════════════════════════
+  const draftSection = section("Draft Management","🎯");
+  draftSection.appendChild(note("Run the live snake draft. Generate a unique code for each team owner, share it with them, then start the draft when everyone is ready."));
 
-  // ── Draft Management Section ─────────────────────────────────────────────
-  const draftMgmt = h("div",{style:{marginTop:"24px",paddingTop:"20px",borderTop:`1px solid ${C.border}`}});
-  draftMgmt.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"Draft Management"));
-  draftMgmt.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"14px"}},"Generate unique codes for each team owner, then start the live snake draft."));
-
-  // Step 1: Generate codes
-  const codesSection = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"12px"}});
-  codesSection.appendChild(h("div",{style:{color:C.text,fontWeight:"700",fontSize:"13px",marginBottom:"8px"}},"Step 1 — Team Codes"));
-  if(S.draftCodes) {
-    // Show existing codes
-    const codesGrid = h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px",marginBottom:"10px"}});
-    S.teams.forEach(t => {
-      const code = S.draftCodes[t.id] || "—";
-      const cell = h("div",{style:{background:C.card,borderRadius:"6px",padding:"8px 10px",border:`1px solid ${C.border}`}});
+  // Step 1: Codes
+  const codesCard = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"10px"}});
+  codesCard.appendChild(h("div",{style:{color:C.text,fontWeight:"700",fontSize:"13px",marginBottom:"4px"}},"Step 1 — Generate Team Codes"));
+  codesCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"10px"}},"Each owner gets a unique 6-character code. They enter it in the Draft tab to claim their team and unlock their pick UI."));
+  if(S.draftCodes){
+    const grid=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px",marginBottom:"10px"}});
+    S.teams.forEach(t=>{
+      const code=S.draftCodes[t.id]||"—";
+      const cell=h("div",{style:{background:C.card,borderRadius:"6px",padding:"8px 10px",border:`1px solid ${C.border}`}});
       cell.appendChild(h("div",{style:{color:C.muted,fontSize:"10px",marginBottom:"2px"}},t.name));
       cell.appendChild(h("div",{style:{color:C.accent,fontFamily:"'Bebas Neue',sans-serif",fontSize:"18px",letterSpacing:"0.1em"}},code));
-      codesGrid.appendChild(cell);
+      grid.appendChild(cell);
     });
-    codesSection.appendChild(codesGrid);
-    codesSection.appendChild(h("div",{style:{color:C.muted,fontSize:"11px"}},"Share each code with the corresponding owner."));
+    codesCard.appendChild(grid);
+    codesCard.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginBottom:"8px"}},"Share each code with the corresponding owner via text or group chat."));
   } else {
-    codesSection.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"10px"}},"No codes yet. Click below to generate one unique code per team."));
+    codesCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"8px"}},"No codes yet — click below to generate."));
   }
-  if(S.draftGenStatus) codesSection.appendChild(h("div",{style:{color:C.green,fontSize:"12px",marginTop:"6px",fontWeight:"600"}},S.draftGenStatus));
-  codesSection.appendChild(h("button",{
-    style:{marginTop:"10px",padding:"8px 16px",borderRadius:"7px",cursor:"pointer",fontWeight:"700",fontSize:"12px",
-      background:`${C.accent}22`,border:`1px solid ${C.accent}55`,color:C.accent},
+  if(S.draftGenStatus) codesCard.appendChild(h("div",{style:{color:C.green,fontSize:"12px",marginBottom:"6px",fontWeight:"600"}},S.draftGenStatus));
+  codesCard.appendChild(h("button",{
+    style:{padding:"8px 16px",borderRadius:"7px",cursor:"pointer",fontWeight:"700",fontSize:"12px",background:`${C.accent}18`,border:`1px solid ${C.accent}55`,color:C.accent},
     onClick:generateDraftCodes
-  }, S.draftCodes ? "🔄 Regenerate Codes" : "🎲 Generate Team Codes"));
-  draftMgmt.appendChild(codesSection);
+  },S.draftCodes?"🔄 Regenerate Codes":"🎲 Generate Team Codes"));
+  draftSection.appendChild(codesCard);
 
   // Step 2: Start draft
-  const startSection = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"12px"}});
-  startSection.appendChild(h("div",{style:{color:C.text,fontWeight:"700",fontSize:"13px",marginBottom:"8px"}},"Step 2 — Start Draft"));
-
+  const startCard = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"10px"}});
+  startCard.appendChild(h("div",{style:{color:C.text,fontWeight:"700",fontSize:"13px",marginBottom:"4px"}},"Step 2 — Start the Draft"));
   const currentDraftStatus = S.draftState?.status;
   if(currentDraftStatus === "active") {
-    startSection.appendChild(h("div",{style:{color:C.green,fontWeight:"700",fontSize:"13px"}},"✓ Draft is live!"));
-    startSection.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginTop:"4px"}},`Pick ${(S.draftState?.currentPickIdx||0)+1} of ${S.draftState?.order?.length||0} · Close this panel and go to the Draft tab.`));
+    startCard.appendChild(h("div",{style:{color:C.green,fontWeight:"700",fontSize:"13px",marginBottom:"4px"}},"✓ Draft is live!"));
+    startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px"}},`Pick ${(S.draftState?.currentPickIdx||0)+1} of ${S.draftState?.order?.length||0} · Close this panel and go to the Draft tab to follow along.`));
   } else if(currentDraftStatus === "complete") {
-    startSection.appendChild(h("div",{style:{color:C.accent,fontWeight:"700",fontSize:"13px"}},"✓ Draft complete — rosters saved."));
+    startCard.appendChild(h("div",{style:{color:C.accent,fontWeight:"700",fontSize:"13px",marginBottom:"4px"}},"✓ Draft complete — rosters have been saved."));
+    startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px"}},"Head to Standings to see the final rosters."));
   } else {
-    startSection.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"10px"}},`Will create a ${S.teams.length}-team snake draft. Set the number of rounds (picks per team):`));
-    // Round count picker
-    const rcWrap = h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px",marginBottom:"12px"}});
-    [6,7,8,9,10].forEach(n => {
-      const active = (S.setupDraftRounds||8) === n;
+    startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"10px"}},"Once everyone has their code and is ready, set the number of rounds and start the draft. Each round = one pick per team."));
+    const rcWrap=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px",marginBottom:"12px"}});
+    [6,7,8,9,10].forEach(n=>{
+      const active=(S.setupDraftRounds||8)===n;
       rcWrap.appendChild(h("button",{
         style:{padding:"8px",borderRadius:"6px",cursor:"pointer",fontWeight:"700",fontSize:"13px",
-          background:active?`${C.accent}22`:C.card,
-          border:`1px solid ${active?C.accent:C.border}`,
-          color:active?C.accent:C.muted},
+          background:active?`${C.accent}22`:C.card,border:`1px solid ${active?C.accent:C.border}`,color:active?C.accent:C.muted},
         onClick:()=>set({setupDraftRounds:n})
       },n));
     });
-    startSection.appendChild(rcWrap);
-    startSection.appendChild(h("button",{
-      style:{width:"100%",padding:"10px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"14px",
-        background:C.accent,border:"none",color:"#ffffff"},
+    startCard.appendChild(rcWrap);
+    startCard.appendChild(h("button",{
+      style:{width:"100%",padding:"10px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"14px",background:C.accent,border:"none",color:"#ffffff"},
       onClick:()=>initDraft(S.setupDraftRounds||8)
     },"🚀 Start Live Draft"));
   }
-  draftMgmt.appendChild(startSection);
+  draftSection.appendChild(startCard);
 
-  // Reset draft
   if(currentDraftStatus) {
-    const resetBtn = h("button",{
-      style:{padding:"8px 16px",borderRadius:"7px",cursor:"pointer",fontWeight:"700",fontSize:"12px",
-        background:"#e84a4a22",border:"1px solid #e84a4a44",color:C.red,marginTop:"4px"},
+    draftSection.appendChild(h("button",{
+      style:{padding:"8px 16px",borderRadius:"7px",cursor:"pointer",fontWeight:"700",fontSize:"12px",background:`${C.red}18`,border:`1px solid ${C.red}44`,color:C.red},
       onClick:async()=>{
         if(!confirm("Reset the entire draft? This cannot be undone.")) return;
-        await setDoc(leagueRef, {draftState:{status:"waiting",order:[],picks:[],currentPickIdx:0}}, {merge:true});
+        await setDoc(leagueRef,{draftState:{status:"waiting",order:[],picks:[],currentPickIdx:0}},{merge:true});
         set({draftState:{status:"waiting",order:[],picks:[],currentPickIdx:0}});
       }
-    },"⚠️ Reset Draft");
-    draftMgmt.appendChild(resetBtn);
+    },"⚠️ Reset Draft"));
   }
-
-  panel.appendChild(draftMgmt);
+  panel.appendChild(draftSection);
 
   overlay.appendChild(panel);
   return overlay;
@@ -2734,59 +2779,78 @@ function buildDraft() {
     }
 
     if(S.draftConfirming) {
-      // Confirm step
+      // ── Floating modal overlay — renders over the page, no scroll needed ──
       const player = S.draftConfirming.player;
-      const confCard = h("div",{style:{background:C.card,border:`1px solid ${mustBeHBP?C.green+"88":C.accent+"55"}`,borderRadius:"12px",padding:"20px",marginBottom:"16px"}});
-      confCard.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"12px"}},"Confirm Pick"));
+
+      const overlay = h("div",{style:{
+        position:"fixed", inset:"0", zIndex:"1500",
+        background:"rgba(13,35,64,0.7)", backdropFilter:"blur(3px)",
+        display:"flex", alignItems:"center", justifyContent:"center", padding:"20px"
+      }});
+      // Clicking backdrop closes modal
+      overlay.addEventListener("click", e => { if(e.target===overlay) set({draftConfirming:null}); });
+
+      const modal = h("div",{style:{
+        background:C.card, border:`2px solid ${mustBeHBP?C.green+"99":C.accent+"88"}`,
+        borderRadius:"16px", padding:"24px", width:"100%", maxWidth:"360px",
+        boxShadow:"0 20px 60px rgba(13,35,64,0.4)", animation:"fadeIn 0.15s ease"
+      }});
+
+      // Header row
+      const mHdr = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}});
+      mHdr.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em"}},"Confirm Pick"));
+      mHdr.appendChild(h("button",{
+        style:{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:"20px",lineHeight:"1",padding:"0"},
+        onClick:()=>set({draftConfirming:null})
+      },"✕"));
+      modal.appendChild(mHdr);
 
       // HBP required warning banner
       if(mustBeHBP) {
-        confCard.appendChild(h("div",{style:{
+        modal.appendChild(h("div",{style:{
           background:C.green+"18", border:`1px solid ${C.green}44`,
           borderRadius:"8px", padding:"10px 12px", marginBottom:"14px",
           color:C.green, fontSize:"12px", fontWeight:"700"
-        }},"🎯 This is your last pick — must be an HBP player."));
+        }},"🎯 Last pick — must be HBP."));
       }
 
       // Player info
-      const plRow = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}});
-      const plLeft = h("div",{});
-      plLeft.appendChild(h("div",{style:{color:C.text,fontWeight:"800",fontSize:"18px"}},player.name));
-      if(player.team) plLeft.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginTop:"2px"}},player.team));
-      plRow.appendChild(plLeft);
-      confCard.appendChild(plRow);
+      modal.appendChild(h("div",{style:{marginBottom:"18px"}},
+        h("div",{style:{color:C.text,fontWeight:"800",fontSize:"20px",marginBottom:"2px"}},player.name),
+        player.team ? h("div",{style:{color:C.muted,fontSize:"12px"}},player.team) : null
+      ));
 
       // Type selector
-      confCard.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"Designate as:"));
-      const typeRow = h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px",marginBottom:"16px"}});
+      modal.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"Designate as:"));
+      const typeRow = h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px",marginBottom:"20px"}});
       ["hr","hbp"].forEach(t => {
         const active = S.draftPickType === t;
         const color = t==="hr" ? C.red : C.green;
-        const locked = mustBeHBP && t === "hr"; // HR locked out on last pick if no HBP yet
+        const locked = mustBeHBP && t === "hr";
         const btn = h("button",{
-          style:{padding:"12px",borderRadius:"8px",cursor:locked?"not-allowed":"pointer",fontWeight:"700",fontSize:"13px",
-            background:active?color+"22":C.bg,
-            border:`1px solid ${active?color+"88":C.border}`,
+          style:{padding:"14px 12px",borderRadius:"10px",cursor:locked?"not-allowed":"pointer",fontWeight:"700",fontSize:"14px",
+            background:active?color+"22":C.surface,
+            border:`2px solid ${active?color:locked?C.border:C.border}`,
             color:active?color:locked?C.border:C.muted,
-            opacity:locked?"0.35":"1"},
+            opacity:locked?"0.3":"1", transition:"all 0.12s"},
           onClick:()=>{ if(!locked) set({draftPickType:t}); }
         }, t==="hr" ? "⚾ HR Player" : "🎯 HBP Player");
         typeRow.appendChild(btn);
       });
-      confCard.appendChild(typeRow);
+      modal.appendChild(typeRow);
 
-      // Action buttons
-      const actRow = h("div",{style:{display:"flex",gap:"10px"}});
-      actRow.appendChild(h("button",{
-        style:{flex:"1",padding:"12px",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"14px",background:"transparent",border:`1px solid ${C.border}`,color:C.muted},
-        onClick:()=>set({draftConfirming:null})
-      },"← Back"));
-      actRow.appendChild(h("button",{
-        style:{flex:"2",padding:"12px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"14px",background:C.accent,border:"none",color:"#ffffff"},
+      // Lock In button
+      modal.appendChild(h("button",{
+        style:{width:"100%",padding:"14px",borderRadius:"10px",cursor:"pointer",fontWeight:"800",
+          fontSize:"16px",background:C.accent,border:"none",color:"#ffffff",
+          boxShadow:`0 4px 16px ${C.accent}44`},
         onClick:()=>commitPick(player, S.draftPickType)
-      },`Lock In Pick ✓`));
-      confCard.appendChild(actRow);
-      wrap.appendChild(confCard);
+      },"Lock In Pick ✓"));
+
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+      // Clean up overlay when draftConfirming clears (next render)
+      const cleanOverlay = setInterval(()=>{ if(!S.draftConfirming){ overlay.remove(); clearInterval(cleanOverlay); }}, 100);
 
     } else {
       // Search UI
@@ -2818,7 +2882,7 @@ function buildDraft() {
           const row = h("div",{class:"row-hover",style:{
             padding:"10px 12px",borderRadius:"8px",background:C.bg,
             cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"
-          },onClick:()=>set({draftConfirming:{player}, draftPickType:"hr"})});
+          },onClick:()=>set({draftConfirming:{player}, draftPickType:mustBeHBP?"hbp":"hr"})});
           row.appendChild(h("div",{},
             h("div",{style:{color:C.text,fontWeight:"600",fontSize:"14px"}},player.name),
             h("div",{style:{color:C.muted,fontSize:"11px",marginTop:"1px"}},`${player.team}${player.position?" · "+player.position:""}`)
@@ -2880,7 +2944,7 @@ function buildDraft() {
           }});
           if(!taken) {
             row.style.cursor = "pointer";
-            row.addEventListener("click", () => set({draftConfirming:{player:{name:p.name, team:p.team+" ("+p.pos+")", id:null}}, draftPickType:"hr"}));
+            row.addEventListener("click", () => set({draftConfirming:{player:{name:p.name, team:p.team+" ("+p.pos+")", id:null}}, draftPickType:mustBeHBP?"hbp":"hr"}));
             row.addEventListener("mouseover", () => { row.style.background = C.surface; });
             row.addEventListener("mouseout", () => { row.style.background = "transparent"; });
           }
@@ -3056,10 +3120,11 @@ function buildLeagueSetup() {
       if(!name) { alert("Please enter a league name."); return; }
       if(!pin || pin.length < 4) { alert("Please choose a PIN (at least 4 characters)."); return; }
 
-      // Build blank teams
+      // Build blank teams with random corny names
+      const randomNames = getRandomTeamNames(count);
       const teams = Array.from({length: count}, (_,i) => ({
         id: i,
-        name: `Team ${i+1}`,
+        name: randomNames[i],
         owner: "",
         hasUsedTransaction: false,
         players: [
