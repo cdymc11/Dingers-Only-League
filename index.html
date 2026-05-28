@@ -438,64 +438,57 @@ function applyTransactions(teams, transactions) {
 
 async function saveToFirebase(teams) {
   const now = new Date().toISOString();
-  // Only save HARDCODED players with stats — transaction players live in transactions/ collection
-  const hardcodedNames_map = {};
-  HARDCODED_TEAMS.forEach(hc => {
-    hardcodedNames_map[hc.id] = new Set(hc.players.map(p => p.name));
-  });
+  // Save teams as-is — strip transaction-added players (those live in transactions/ collection)
+  // A transaction-added player has addedAt set; original roster players do not
+  const transactionAddedNames = new Set(S.transactions.map(tx => tx.addedPlayer));
   const corrected = teams.map(t => {
-    const hc = HARDCODED_TEAMS.find(h => h.id === t.id);
-    if(!hc) return t;
-    // Only save hardcoded players, strip transaction fields
-    // Keep dropped player stats — their accumulated HRs/HBPs count toward team score
-    const players = t.players
-      .filter(p => hardcodedNames_map[t.id]?.has(p.name))
+    const players = (t.players || [])
+      .filter(p => !transactionAddedNames.has(p.name)) // strip transaction pickups
       .map(p => ({
         name: p.name,
         type: p.type,
         teamAbbr: p.teamAbbr || null,
         effectiveHR: p.effectiveHR || 0,
         effectiveHBP: p.effectiveHBP || 0,
-        hrBaseline: null,
-        hbpBaseline: null,
-        addedAt: null,
-        droppedAt: null,
+        hrBaseline: p.hrBaseline || null,
+        hbpBaseline: p.hbpBaseline || null,
+        addedAt: p.addedAt || null,
+        droppedAt: p.droppedAt || null,
       }));
-    return { ...t, name: hc.name, owner: hc.owner, hasUsedTransaction: false, players };
+    return { ...t, players };
   });
-  await setDoc(leagueRef, { teams: corrected, lastUpdated: now });
+  await setDoc(leagueRef, {
+    teams: corrected,
+    lastUpdated: now,
+    leagueName: S.leagueName,
+  }, { merge: true });
 }
 
 // ── MLB Stats refresh ─────────────────────────────────────────────────────────
 async function refreshAllStats() {
   set({ refreshing: true, refreshStatus: "Fetching stats…" });
-  // Work from HARDCODED_TEAMS only — transaction players handled separately
-  const updated = JSON.parse(JSON.stringify(HARDCODED_TEAMS));
-  // Also update transaction player stats separately
-  const txUpdates = {}; // { txId: { effectiveHR/HBP, teamAbbr } }
 
-  // Build set of dropped player names per team from transactions
+  // Work from current live teams in S.teams — deep copy so we don't mutate state
+  const updated = JSON.parse(JSON.stringify(S.teams));
+  const txUpdates = {};
+
+  // Build set of dropped player names per team
   const droppedByTeam = {};
   S.transactions.forEach(tx => {
     if(!droppedByTeam[tx.teamId]) droppedByTeam[tx.teamId] = new Set();
     droppedByTeam[tx.teamId].add(tx.droppedPlayer);
   });
 
+  // Build set of transaction-added players (stats handled separately below)
+  const txAddedNames = new Set(S.transactions.map(tx => tx.addedPlayer));
+
   for(const t of updated) {
     for(const p of t.players) {
       if(!p.name?.trim()) continue;
-      // Skip dropped players — their stats are frozen at time of drop
-      if(droppedByTeam[t.id]?.has(p.name)) {
-        // Preserve their last known stats from Firebase
-        const fbTeam = S.teams.find(ft => ft.id === t.id);
-        const fbPlayer = fbTeam?.players.find(fp => fp.name === p.name);
-        if(fbPlayer) {
-          p.effectiveHR = fbPlayer.effectiveHR || 0;
-          p.effectiveHBP = fbPlayer.effectiveHBP || 0;
-          p.teamAbbr = fbPlayer.teamAbbr || p.teamAbbr;
-        }
-        continue;
-      }
+      // Skip transaction pickups — handled separately
+      if(txAddedNames.has(p.name)) continue;
+      // Skip dropped players — their stats are frozen
+      if(droppedByTeam[t.id]?.has(p.name)) continue;
       const s = await fetchStats(p.name); if(!s) continue;
       if(p.type==="hr") p.effectiveHR = s.hr;
       if(p.type==="hbp") p.effectiveHBP = s.hbp;
@@ -503,7 +496,7 @@ async function refreshAllStats() {
     }
   }
 
-  // Update transaction player stats — read baselines from S.transactions
+  // Update transaction player stats using stored baselines
   for(const tx of S.transactions) {
     const s = await fetchStats(tx.addedPlayer); if(!s) continue;
     const txId = `${tx.teamId}_${tx.addedPlayer.replace(/[^a-zA-Z0-9]/g,'_')}`;
@@ -517,10 +510,10 @@ async function refreshAllStats() {
     }
   }
 
-  // Save stat-only data to league/data
+  // Save updated base roster stats
   await saveToFirebase(updated);
 
-  // Save updated effectiveHR/HBP back to each transaction doc
+  // Save updated transaction player stats back to their docs
   for(const [txId, vals] of Object.entries(txUpdates)) {
     const tx = S.transactions.find(t => `${t.teamId}_${t.addedPlayer.replace(/[^a-zA-Z0-9]/g,'_')}` === txId);
     if(tx) {
@@ -528,7 +521,7 @@ async function refreshAllStats() {
     }
   }
 
-  // Reload transactions and reapply
+  // Reload transactions and reapply to get final merged view
   const txs = await loadTransactions();
   const withTx = applyTransactions(updated, txs);
   set({ teams: withTx, refreshing: false, refreshStatus: "✓ Updated!" });
