@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
   <meta name="apple-mobile-web-app-title" content="Dingers Only"/>
   <title>Dingers Only — App</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -12,18 +12,18 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { height: 100%; background: #0a0f1e; font-family: 'DM Sans', sans-serif; color: #f0f4ff; }
+    html, body { height: 100%; background: #ddeeff; font-family: 'DM Sans', sans-serif; color: #0d2340; }
     #app { min-height: 100vh; }
     @keyframes spin { to { transform: rotate(360deg); } }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     input { font-family: 'DM Sans', sans-serif; }
     button { font-family: 'DM Sans', sans-serif; }
     ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: #0a0f1e; }
-    ::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 3px; }
+    ::-webkit-scrollbar-track { background: #c8e0f5; }
+    ::-webkit-scrollbar-thumb { background: #4a8abf; border-radius: 3px; }
     input::placeholder { color: #6b7fa3; }
     .tab-btn { transition: all 0.15s; }
-    .row-hover:hover { background: rgba(232,200,74,0.09) !important; }
+    .row-hover:hover { background: rgba(26,74,138,0.08) !important; }
     @keyframes celebFall {
       0%   { transform: translateY(-20px) rotate(0deg);   opacity: 1; }
       100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
@@ -161,8 +161,8 @@ function maybeAutoSnapshot() {
 // ── Constants ─────────────────────────────────────────────────────────────────
 const PASS = "beta";
 const C = {
-  bg:"#0a0f1e", surface:"#111827", card:"#1a2235", border:"#1e3a5f",
-  accent:"#e8c84a", red:"#e84a4a", green:"#4ae89a", text:"#f0f4ff", muted:"#6b7fa3"
+  bg:"#ddeeff", surface:"#c8e0f5", card:"#ffffff", border:"#a8c8e8",
+  accent:"#1a4a8a", red:"#c0392b", green:"#1a7a4a", text:"#0d2340", muted:"#4a6a8a"
 };
 
 // Teams are loaded dynamically from Firebase — no hardcoded teams
@@ -298,7 +298,7 @@ let S = {
   leagueName: "DINGERS ONLY", // editable
   leagueSetup: false, // true when league has been configured
   setupStep: "check", // "check" | "new" | "join"
-  setupTeamCount: 8,
+  setupTeamCount: 10,
   setupLeagueName: "",
   setupPIN: "",
   lastUpdated: null,
@@ -678,7 +678,7 @@ function buildLeaderboard() {
       style:{flex:"1",padding:"7px 4px",borderRadius:"8px",cursor:"pointer",fontSize:"12px",fontWeight:"700",
         background:active?C.accent:"transparent",
         border:`1px solid ${active?C.accent:C.border}`,
-        color:active?"#000":C.muted},
+        color:active?"#ffffff":C.muted},
       onClick:()=>set({lbFilter:id})
     },lbl));
   });
@@ -740,7 +740,7 @@ function buildRecent() {
       style:{flex:"1",padding:"8px 4px",borderRadius:"8px",cursor:"pointer",fontSize:"13px",fontWeight:"700",
         background:active?C.accent:"transparent",
         border:`1px solid ${active?C.accent:C.border}`,
-        color:active?"#000":C.muted},
+        color:active?"#ffffff":C.muted},
       onClick:()=>set({recentView:id})
     },lbl));
   });
@@ -755,7 +755,7 @@ function buildRecent() {
       center.append(
         h("div",{style:{fontSize:"40px",marginBottom:"12px"}},"⚾"),
         h("div",{style:{color:C.muted,fontSize:"14px",marginBottom:"20px"}},"See which drafted players hit dingers or got plunked yesterday."),
-        h("button",{style:{padding:"12px 28px",borderRadius:"8px",cursor:"pointer",background:C.accent,border:"none",color:"#000",fontWeight:"700",fontSize:"14px"},onClick:loadYesterday},"Load Yesterday's Stats")
+        h("button",{style:{padding:"12px 28px",borderRadius:"8px",cursor:"pointer",background:C.accent,border:"none",color:"#ffffff",fontWeight:"700",fontSize:"14px"},onClick:loadYesterday},"Load Yesterday's Stats")
       );
       wrap.appendChild(center);
       return wrap;
@@ -798,7 +798,7 @@ function buildRecent() {
   const weekLabel = fmt(lastMon) + " - " + fmt(lastSun);
   wrap.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"16px"}},weekLabel));
   if(!S.wkDone && !S.wkLoading) {
-    wrap.appendChild(h("button",{style:{padding:"12px 28px",borderRadius:"8px",cursor:"pointer",background:C.accent,border:"none",color:"#000",fontWeight:"700",fontSize:"14px"},onClick:()=>loadWeeklyRecap(fmtISO(lastMon),fmtISO(lastSun))},"Load This Week's Recap"));
+    wrap.appendChild(h("button",{style:{padding:"12px 28px",borderRadius:"8px",cursor:"pointer",background:C.accent,border:"none",color:"#ffffff",fontWeight:"700",fontSize:"14px"},onClick:()=>loadWeeklyRecap(fmtISO(lastMon),fmtISO(lastSun))},"Load This Week's Recap"));
     return wrap;
   }
   if(S.wkLoading) { wrap.appendChild(spinner("Crunching this week's stats...")); return wrap; }
@@ -1131,7 +1131,7 @@ function buildScores() {
   wrap.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginBottom:"20px"}},"🌟 = has drafted players · When games show Final, wait 1-2 hours then refresh stats!"));
 
   if(!S.scDone && !S.scLoading) {
-    wrap.appendChild(h("button",{style:{padding:"12px 28px",borderRadius:"8px",cursor:"pointer",background:C.accent,border:"none",color:"#000",fontWeight:"700",fontSize:"14px"},onClick:loadScores},"Load Today's Scores"));
+    wrap.appendChild(h("button",{style:{padding:"12px 28px",borderRadius:"8px",cursor:"pointer",background:C.accent,border:"none",color:"#ffffff",fontWeight:"700",fontSize:"14px"},onClick:loadScores},"Load Today's Scores"));
     return wrap;
   }
   if(S.scLoading) { wrap.appendChild(spinner("Loading scores…")); return wrap; }
@@ -1661,7 +1661,7 @@ function buildDebug() {
     h("h3",{style:{margin:"0",fontSize:"13px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.12em",color:C.muted}},"API Debug")
   ));
   wrap.appendChild(h("p",{style:{color:C.muted,fontSize:"13px",marginBottom:"16px"}},"Tests every player against the MLB API — useful for spotting name mismatches or missing stats."));
-  if(!S.dbRunning) wrap.appendChild(h("button",{style:{padding:"11px 24px",borderRadius:"8px",cursor:"pointer",background:C.accent,border:"none",color:"#000",fontWeight:"700",fontSize:"14px",marginBottom:"20px"},onClick:runDebug},"🔍 Run API Check"));
+  if(!S.dbRunning) wrap.appendChild(h("button",{style:{padding:"11px 24px",borderRadius:"8px",cursor:"pointer",background:C.accent,border:"none",color:"#ffffff",fontWeight:"700",fontSize:"14px",marginBottom:"20px"},onClick:runDebug},"🔍 Run API Check"));
   if(S.dbRunning) wrap.appendChild(h("div",{style:{marginBottom:"16px"}},spinner(`Checking ${S.dbResults.length} of 64 players…`)));
   if(S.dbResults.length>0) {
     const list = h("div",{style:{display:"flex",flexDirection:"column",gap:"6px"}});
@@ -2052,9 +2052,45 @@ function buildCommish() {
     h("h2",{style:{color:C.accent,fontSize:"20px",fontWeight:"800",margin:"0"}},"⚙️ Commissioner Panel"),
     h("button",{style:{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:"22px"},onClick:()=>set({showCommish:false})},"✕")
   ));
+  // ── Team Count Editor ───────────────────────────────────────────────────────
+  const tcSection = h("div",{style:{marginBottom:"20px",paddingBottom:"20px",borderBottom:`1px solid ${C.border}`}});
+  tcSection.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"Number of Teams"));
+  const tcRow = h("div",{style:{display:"flex",alignItems:"center",gap:"12px"}});
+  // Decrease button
+  tcRow.appendChild(h("button",{
+    style:{width:"36px",height:"36px",borderRadius:"8px",cursor:local.length<=2?"default":"pointer",
+      background:local.length<=2?"transparent":`${C.red}22`,
+      border:`1px solid ${local.length<=2?C.border:C.red+"55"}`,
+      color:local.length<=2?C.border:C.red,fontWeight:"800",fontSize:"18px",lineHeight:"1"},
+    onClick:()=>{
+      if(local.length<=2) return;
+      const updated = local.slice(0, local.length-1);
+      const newActive = Math.min(S.cpActive, updated.length-1);
+      set({cpLocal: updated, cpActive: newActive});
+    }
+  },"−"));
+  // Count display
+  tcRow.appendChild(h("div",{style:{color:C.accent,fontFamily:"'Bebas Neue',sans-serif",fontSize:"28px",minWidth:"32px",textAlign:"center"}},String(local.length)));
+  // Increase button
+  tcRow.appendChild(h("button",{
+    style:{width:"36px",height:"36px",borderRadius:"8px",cursor:local.length>=20?"default":"pointer",
+      background:local.length>=20?"transparent":`${C.green}22`,
+      border:`1px solid ${local.length>=20?C.border:C.green+"55"}`,
+      color:local.length>=20?C.border:C.green,fontWeight:"800",fontSize:"18px",lineHeight:"1"},
+    onClick:()=>{
+      if(local.length>=20) return;
+      const newId = Math.max(...local.map(t=>t.id), -1) + 1;
+      const newTeam = {id:newId,name:`Team ${local.length+1}`,owner:"",players:[],hasUsedTransaction:false};
+      set({cpLocal:[...local, newTeam]});
+    }
+  },"+"));
+  tcRow.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginLeft:"4px"}},"teams (min 2, max 20)"));
+  tcSection.appendChild(tcRow);
+  panel.appendChild(tcSection);
+
   // Team tabs
   const tabs=h("div",{style:{display:"flex",gap:"6px",flexWrap:"wrap",marginBottom:"20px"}});
-  local.forEach((t,i)=>tabs.appendChild(h("button",{style:{padding:"5px 12px",borderRadius:"6px",fontSize:"12px",fontWeight:"600",cursor:"pointer",background:S.cpActive===i?C.accent:C.bg,color:S.cpActive===i?"#000":C.muted,border:`1px solid ${S.cpActive===i?C.accent:C.border}`},onClick:()=>set({cpActive:i,cpReplHR:"",cpReplHBP:""})},t.name||`Team ${i+1}`)));
+  local.forEach((t,i)=>tabs.appendChild(h("button",{style:{padding:"5px 12px",borderRadius:"6px",fontSize:"12px",fontWeight:"600",cursor:"pointer",background:S.cpActive===i?C.accent:C.bg,color:S.cpActive===i?"#ffffff":C.muted,border:`1px solid ${S.cpActive===i?C.accent:C.border}`},onClick:()=>set({cpActive:i,cpReplHR:"",cpReplHBP:""})},t.name||`Team ${i+1}`)));
   panel.appendChild(tabs);
   // Name/owner
   const inp=(val,onInput,ph="",disabled=false)=>{
@@ -2130,7 +2166,7 @@ function buildCommish() {
     set({cpLocal:updated,cpRefreshing:false,cpStatus:"✓ Stats updated!"});
     setTimeout(()=>set({cpStatus:""}),3000);
   }},S.cpRefreshing?"⟳ Refreshing…":"⟳ Refresh Live Stats"));
-  actions.appendChild(h("button",{style:{padding:"10px 18px",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"13px",background:C.accent,border:"none",color:"#000"},onClick:async()=>{await saveToFirebase(local);set({cpStatus:"✓ Saved!"});setTimeout(()=>set({cpStatus:""}),2000);}},  "💾 Save"));
+  actions.appendChild(h("button",{style:{padding:"10px 18px",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"13px",background:C.accent,border:"none",color:"#ffffff"},onClick:async()=>{await saveToFirebase(local);set({cpStatus:"✓ Saved!"});setTimeout(()=>set({cpStatus:""}),2000);}},  "💾 Save"));
   panel.appendChild(actions);
 
   // Transaction Management Section
@@ -2285,7 +2321,7 @@ function buildCommish() {
     startSection.appendChild(rcWrap);
     startSection.appendChild(h("button",{
       style:{width:"100%",padding:"10px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"14px",
-        background:C.accent,border:"none",color:"#000"},
+        background:C.accent,border:"none",color:"#ffffff"},
       onClick:()=>initDraft(S.setupDraftRounds||8)
     },"🚀 Start Live Draft"));
   }
@@ -2358,14 +2394,14 @@ function buildHRCelebration() {
   // Center card
   const card = h("div", {
     style: { textAlign:"center", animation:"celebPop 0.5s cubic-bezier(0.22,1,0.36,1) 0.1s both",
-             background:"#1a2235", border:`2px solid ${color}`, borderRadius:"20px",
+             background:C.card, border:`2px solid ${color}`, borderRadius:"20px",
              padding:"32px 40px", maxWidth:"280px", width:"80%" }
   });
   card.appendChild(h("div", { style:{ fontSize:"52px", marginBottom:"8px", lineHeight:"1" } }, emoji));
   card.appendChild(h("div", { style:{ color, fontSize:"28px", fontWeight:"900",
                                        fontFamily:"'Bebas Neue', sans-serif", letterSpacing:"0.05em",
                                        marginBottom:"8px" } }, label));
-  card.appendChild(h("div", { style:{ color:"#f0f4ff", fontSize:"18px", fontWeight:"700",
+  card.appendChild(h("div", { style:{ color:C.text, fontSize:"18px", fontWeight:"700",
                                        marginBottom:"6px" } }, name));
   card.appendChild(h("div", { style:{ color:"#6b7fa3", fontSize:"12px" } }, "tap for stats"));
   overlay.appendChild(card);
@@ -2385,7 +2421,7 @@ function buildLogoModal() {
   img.src = logoUrl;
   img.style.cssText = "width:220px;height:220px;border-radius:20px;border:2px solid #1e3a5f;margin-bottom:20px;";
   overlay.appendChild(img);
-  overlay.appendChild(h("div",{style:{color:"#f0f4ff",fontWeight:"800",fontSize:"20px",textAlign:"center",marginBottom:"6px"}},team.name));
+  overlay.appendChild(h("div",{style:{color:C.text,fontWeight:"800",fontSize:"20px",textAlign:"center",marginBottom:"6px"}},team.name));
   overlay.appendChild(h("div",{style:{color:"#6b7fa3",fontSize:"13px",textAlign:"center",marginBottom:"24px"}},team.owner||""));
   overlay.appendChild(h("div",{style:{color:"#6b7fa3",fontSize:"12px"}},"Tap anywhere to close"));
   return overlay;
@@ -2584,7 +2620,7 @@ function buildDraft() {
     codeInp.addEventListener("keydown", e => { if(e.key==="Enter") claimTeamByCode(codeInp.value.toUpperCase()); });
     codeRow.appendChild(codeInp);
     codeRow.appendChild(h("button",{
-      style:{padding:"10px 18px",borderRadius:"8px",cursor:"pointer",background:C.accent,border:"none",color:"#000",fontWeight:"700",fontSize:"14px"},
+      style:{padding:"10px 18px",borderRadius:"8px",cursor:"pointer",background:C.accent,border:"none",color:"#ffffff",fontWeight:"700",fontSize:"14px"},
       onClick:()=>claimTeamByCode(codeInp.value.toUpperCase())
     },"Claim"));
     codeCard.appendChild(codeRow);
@@ -2654,7 +2690,7 @@ function buildDraft() {
     ci.placeholder = "Your code"; ci.value = "";
     ci.addEventListener("keydown", e=>{ if(e.key==="Enter") claimTeamByCode(ci.value.toUpperCase()); });
     cRow.appendChild(ci);
-    cRow.appendChild(h("button",{style:{padding:"8px 16px",borderRadius:"7px",cursor:"pointer",background:C.accent,border:"none",color:"#000",fontWeight:"700",fontSize:"13px"},onClick:()=>claimTeamByCode(ci.value.toUpperCase())},"Go"));
+    cRow.appendChild(h("button",{style:{padding:"8px 16px",borderRadius:"7px",cursor:"pointer",background:C.accent,border:"none",color:"#ffffff",fontWeight:"700",fontSize:"13px"},onClick:()=>claimTeamByCode(ci.value.toUpperCase())},"Go"));
     claimCard.appendChild(cRow);
     if(S.draftCodeError) claimCard.appendChild(h("div",{style:{color:C.red,fontSize:"12px",marginTop:"6px"}},S.draftCodeError));
     wrap.appendChild(claimCard);
@@ -2722,7 +2758,7 @@ function buildDraft() {
         onClick:()=>set({draftConfirming:null})
       },"← Back"));
       actRow.appendChild(h("button",{
-        style:{flex:"2",padding:"12px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"14px",background:C.accent,border:"none",color:"#000"},
+        style:{flex:"2",padding:"12px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"14px",background:C.accent,border:"none",color:"#ffffff"},
         onClick:()=>commitPick(player, S.draftPickType)
       },`Lock In Pick ✓`));
       confCard.appendChild(actRow);
@@ -2979,11 +3015,11 @@ function buildLeagueSetup() {
   // Create button
   card.appendChild(h("button",{
     style:{width:"100%",padding:"14px",borderRadius:"10px",cursor:"pointer",fontWeight:"800",
-      fontSize:"16px",background:C.accent,border:"none",color:"#000"},
+      fontSize:"16px",background:C.accent,border:"none",color:"#ffffff"},
     onClick: async () => {
       const name = (nameInp.value||"").trim();
       const pin = (pinInp.value||"").trim();
-      const count = S.setupTeamCount || 8;
+      const count = S.setupTeamCount || 10;
       if(!name) { alert("Please enter a league name."); return; }
       if(!pin || pin.length < 4) { alert("Please choose a PIN (at least 4 characters)."); return; }
 
@@ -3037,11 +3073,11 @@ function render() {
     const pwInp=h("input",{type:"password",placeholder:"Commissioner PIN",style:{background:C.bg,border:`1px solid ${S.pwError?C.red:C.border}`,borderRadius:"6px",padding:"7px 10px",color:C.text,fontSize:"13px",outline:"none",width:"155px"}});
     pwInp.value="";
     pwInp.addEventListener("keydown",e=>{if(e.key==="Enter")handleLogin(pwInp.value);});
-    pwRow.append(pwInp,h("button",{style:{padding:"7px 12px",borderRadius:"6px",cursor:"pointer",background:C.accent,border:"none",color:"#000",fontWeight:"700",fontSize:"13px"},onClick:()=>handleLogin(pwInp.value)},"Enter"));
+    pwRow.append(pwInp,h("button",{style:{padding:"7px 12px",borderRadius:"6px",cursor:"pointer",background:C.accent,border:"none",color:"#ffffff",fontWeight:"700",fontSize:"13px"},onClick:()=>handleLogin(pwInp.value)},"Enter"));
     authBlock.appendChild(pwRow);
     if(S.pwError) authBlock.appendChild(h("span",{style:{color:C.red,fontSize:"12px"}},"Incorrect password"));
   } else {
-    authBlock.appendChild(h("button",{style:{padding:"7px 14px",borderRadius:"6px",cursor:"pointer",background:C.accent,border:"none",color:"#000",fontWeight:"700",fontSize:"13px"},onClick:()=>{set({showCommish:true,cpLocal:JSON.parse(JSON.stringify(S.teams)),cpActive:0});}},"⚙️ Manage League"));
+    authBlock.appendChild(h("button",{style:{padding:"7px 14px",borderRadius:"6px",cursor:"pointer",background:C.accent,border:"none",color:"#ffffff",fontWeight:"700",fontSize:"13px"},onClick:()=>{set({showCommish:true,cpLocal:JSON.parse(JSON.stringify(S.teams)),cpActive:0});}},"⚙️ Manage League"));
   }
   hInner.append(titleBlock,authBlock);
   header.appendChild(hInner);
