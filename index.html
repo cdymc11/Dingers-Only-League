@@ -1897,28 +1897,43 @@ async function openSpotlight(playerName, fantasyTeam, type) {
   if(!playerId) { set({spotlightLoading:false}); return; }
   const season = new Date().getFullYear();
   try {
-    const [sr, lr, gr] = await Promise.all([
+    // Fetch season + last7 together — these are stable
+    const [sr, lr] = await Promise.all([
       fetch(`https://statsapi.mlb.com/api/v1/people/${playerId}/stats?stats=season&group=hitting&season=${season}&sportId=1`),
       fetch(`https://statsapi.mlb.com/api/v1/people/${playerId}/stats?stats=lastXGames&group=hitting&season=${season}&sportId=1&limit=7`),
-      fetch(`https://statsapi.mlb.com/api/v1/people/${playerId}/stats?stats=gameLog&group=hitting&season=${season}&sportId=1&limit=5`)
     ]);
-    const [sd, ld, gd] = await Promise.all([sr.json(), lr.json(), gr.json()]);
+    const [sd, ld] = await Promise.all([sr.json(), lr.json()]);
     const season_split = sd.stats?.[0]?.splits?.[0]?.stat || {};
     const last7_split = ld.stats?.[0]?.splits?.[0]?.stat || {};
-    // Game log — last 3 games played, most recent first
-    const gameSplits = (gd.stats?.[0]?.splits || []).slice(0,3);
+    // Show modal immediately with season + last7 while game log loads
+    set({spotlightLoading:false, spotlightData:{season:season_split, last7:last7_split, gameLog:null, playerId}});
+  } catch(e) {
+    set({spotlightLoading:false, spotlightData:null});
+    return;
+  }
+  // Fetch game log separately — won't break spotlight if it fails
+  try {
+    const gr = await fetch(`https://statsapi.mlb.com/api/v1/people/${playerId}/stats?stats=gameLog&group=hitting&season=${season}&sportId=1`);
+    const gd = await gr.json();
+    // gameLog splits come back newest-first, take last 3
+    const allSplits = gd.stats?.[0]?.splits || [];
+    const gameSplits = allSplits.slice(0, 3);
     const gameLog = gameSplits.map(g => ({
       date: g.date || "",
-      opponent: g.opponent?.name || g.team?.name || "—",
-      isHome: g.isHome ?? true,
+      opponent: g.opponent?.name || "—",
+      isHome: g.isHome !== false,
       hr: g.stat?.homeRuns ?? 0,
       hbp: g.stat?.hitByPitch ?? 0,
       hits: g.stat?.hits ?? 0,
       ab: g.stat?.atBats ?? 0,
     }));
-    set({spotlightLoading:false, spotlightData:{season:season_split, last7:last7_split, gameLog, playerId}});
+    // Merge game log into existing spotlightData
+    if(S.spotlightData) {
+      set({spotlightData:{...S.spotlightData, gameLog}});
+    }
   } catch(e) {
-    set({spotlightLoading:false, spotlightData:null});
+    // Game log failed silently — rest of spotlight still works
+    console.warn("Game log fetch failed:", e);
   }
 }
 
@@ -2026,7 +2041,11 @@ function buildSpotlightModal() {
   }
 
     // Game log — last 3 games
-    if(sd.gameLog?.length) {
+    // Game log section
+    modal.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"10px"}},"Last 3 Games"));
+    if(sd.gameLog === null) {
+      modal.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",padding:"10px 0 16px",textAlign:"center"}},"Loading game log…"));
+    } else if(sd.gameLog?.length) {
       modal.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"10px"}},"Last 3 Games"));
       const logCard = h("div",{style:{background:C.bg,border:`1px solid ${C.border}`,borderRadius:"10px",overflow:"hidden",marginBottom:"20px"}});
 
@@ -2072,6 +2091,8 @@ function buildSpotlightModal() {
         logCard.appendChild(row);
       });
       modal.appendChild(logCard);
+    } else {
+      modal.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",padding:"4px 0 16px"}},"No recent games found."));
     }
 
   modal.appendChild(h("button",{style:{width:"100%",padding:"10px",background:"transparent",border:`1px solid ${C.border}`,borderRadius:"8px",color:C.muted,cursor:"pointer",fontSize:"14px"},onClick:()=>set({spotlightPlayer:null,spotlightData:null})},"Close"));
