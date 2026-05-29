@@ -2223,6 +2223,27 @@ function buildCommish() {
     }
   },"🗑️ Reset League"));
   lsBody.appendChild(resetWrap);
+
+  // Save button for league settings
+  const lsSaveStatus = h("div",{style:{fontSize:"12px",fontWeight:"600",marginTop:"10px"}});
+  lsBody.appendChild(lsSaveStatus);
+  lsBody.appendChild(h("button",{
+    style:{marginTop:"8px",padding:"10px 24px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",
+      fontSize:"13px",background:C.accent,border:"none",color:"#ffffff"},
+    onClick: async () => {
+      try {
+        await saveToFirebase(local);
+        const withTx = applyTransactions(local, S.transactions);
+        set({teams: withTx, cpLocal: JSON.parse(JSON.stringify(local))});
+        lsSaveStatus.textContent = "✓ Saved!";
+        lsSaveStatus.style.color = C.green;
+        setTimeout(()=>{ lsSaveStatus.textContent=""; }, 2000);
+      } catch(e) {
+        lsSaveStatus.textContent = "❌ Save failed: " + e.message;
+        lsSaveStatus.style.color = C.red;
+      }
+    }
+  },"💾 Save"));
   panel.appendChild(leagueSection);
 
   // ════════════════════════════════════════════════════════════════════════
@@ -2341,7 +2362,14 @@ function buildCommish() {
   },S.cpRefreshing?"⟳ Refreshing…":"⟳ Refresh Live Stats"));
   actions.appendChild(h("button",{
     style:{padding:"10px 24px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"13px",background:C.accent,border:"none",color:"#ffffff"},
-    onClick:async()=>{await saveToFirebase(local);set({cpStatus:"✓ Saved!"});setTimeout(()=>set({cpStatus:""}),2000);}
+    onClick:async()=>{
+      await saveToFirebase(local);
+      // Sync S.teams immediately so the rest of the app reflects the change
+      // without waiting for the Firebase onSnapshot round-trip
+      const withTx = applyTransactions(local, S.transactions);
+      set({teams: withTx, cpLocal: JSON.parse(JSON.stringify(local)), cpStatus:"✓ Saved!"});
+      setTimeout(()=>set({cpStatus:""}),2000);
+    }
   },"💾 Save"));
   rsBody.appendChild(actions);
 
