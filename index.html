@@ -1831,12 +1831,15 @@ function buildMyTeam() {
     hrPlayers.forEach((p,i)=>{
       if(!p.name?.trim()) return;
       const dropped=!!p.droppedAt;
-      const row=h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 14px",borderBottom:i<hrPlayers.length-1?`1px solid ${C.border}11`:"none",opacity:dropped?"0.45":"1"}});
+      const canSpotlight = !dropped && PLAYER_IDS[p.name];
+      const row=h("div",{class:canSpotlight?"row-hover":"",style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 14px",borderBottom:i<hrPlayers.length-1?`1px solid ${C.border}11`:"none",opacity:dropped?"0.45":"1",cursor:canSpotlight?"pointer":"default"}});
+      if(canSpotlight) row.addEventListener("click",()=>openSpotlight(p.name, myTeam.name, "hr"));
       const left=h("div",{}); left.appendChild(h("div",{style:{color:dropped?C.muted:C.text,fontWeight:"600",fontSize:"14px",textDecoration:dropped?"line-through":"none"}},p.name));
-      const tags=h("div",{style:{display:"flex",gap:"6px",marginTop:"3px"}});
+      const tags=h("div",{style:{display:"flex",gap:"6px",marginTop:"3px",alignItems:"center"}});
       if(p.teamAbbr) tags.appendChild(h("span",{style:{color:C.muted,fontSize:"11px"}},p.teamAbbr));
       if(dropped) tags.appendChild(h("span",{style:{color:C.red,fontSize:"10px",fontWeight:"700"}},"DROPPED"));
       if(p.addedAt) tags.appendChild(h("span",{style:{color:C.green,fontSize:"10px",fontWeight:"700"}},"ADDED"));
+      if(canSpotlight) tags.appendChild(h("span",{style:{color:C.muted,fontSize:"10px"}},"tap for stats"));
       left.appendChild(tags); row.appendChild(left);
       row.appendChild(h("div",{style:{color:C.red,fontFamily:"'Bebas Neue',sans-serif",fontSize:"26px",lineHeight:"1"}},String(p.effectiveHR||0)));
       rosterCard.appendChild(row);
@@ -1845,12 +1848,15 @@ function buildMyTeam() {
   if(hbpPlayer?.name?.trim()) {
     rosterCard.appendChild(h("div",{style:{background:C.surface,padding:"8px 14px",borderBottom:`1px solid ${C.border}22`,borderTop:`1px solid ${C.border}`}},h("span",{style:{color:C.green,fontSize:"10px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em"}},"🎯 HBP Player")));
     const dropped=!!hbpPlayer.droppedAt;
-    const row=h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 14px",opacity:dropped?"0.45":"1"}});
+    const canSpotlightHBP = !dropped && PLAYER_IDS[hbpPlayer.name];
+    const row=h("div",{class:canSpotlightHBP?"row-hover":"",style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 14px",opacity:dropped?"0.45":"1",cursor:canSpotlightHBP?"pointer":"default"}});
+    if(canSpotlightHBP) row.addEventListener("click",()=>openSpotlight(hbpPlayer.name, myTeam.name, "hbp"));
     const left=h("div",{}); left.appendChild(h("div",{style:{color:dropped?C.muted:C.text,fontWeight:"600",fontSize:"14px",textDecoration:dropped?"line-through":"none"}},hbpPlayer.name));
-    const tags=h("div",{style:{display:"flex",gap:"6px",marginTop:"3px"}});
+    const tags=h("div",{style:{display:"flex",gap:"6px",marginTop:"3px",alignItems:"center"}});
     if(hbpPlayer.teamAbbr) tags.appendChild(h("span",{style:{color:C.muted,fontSize:"11px"}},hbpPlayer.teamAbbr));
     if(dropped) tags.appendChild(h("span",{style:{color:C.red,fontSize:"10px",fontWeight:"700"}},"DROPPED"));
     if(hbpPlayer.addedAt) tags.appendChild(h("span",{style:{color:C.green,fontSize:"10px",fontWeight:"700"}},"ADDED"));
+    if(canSpotlightHBP) tags.appendChild(h("span",{style:{color:C.muted,fontSize:"10px"}},"tap for stats"));
     left.appendChild(tags); row.appendChild(left);
     row.appendChild(h("div",{style:{color:C.green,fontFamily:"'Bebas Neue',sans-serif",fontSize:"26px",lineHeight:"1"}},String(hbpPlayer.effectiveHBP||0)));
     rosterCard.appendChild(row);
