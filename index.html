@@ -940,6 +940,7 @@ async function loadWeeklyRecap(startDate, endDate) {
 
 // ── History ───────────────────────────────────────────────────────────────────
 // Preseason projections (Steamer 2026) — HR for HR players, HBP for HBP players
+// Auto-populated from DRAFT_POOL at runtime (see below after DRAFT_POOL is defined)
 const PRESEASON_PROJ = {};
 
 // Corny fantasy baseball team name pool — shuffled on league creation
@@ -985,6 +986,16 @@ const CORNY_NAMES = [
   "Banging Trash Cans United",
   "The Checked Swing Jury",
 ];
+
+// Populate PRESEASON_PROJ from DRAFT_POOL so heat indicators and blended projections work
+DRAFT_POOL.forEach(p => {
+  if(p.hrProj) PRESEASON_PROJ[p.name] = p.hrProj;
+});
+// HBP projections stored separately — used when player is designated HBP
+const PRESEASON_HBP_PROJ = {};
+DRAFT_POOL.forEach(p => {
+  if(p.hbpProj) PRESEASON_HBP_PROJ[p.name] = p.hbpProj;
+});
 
 function getRandomTeamNames(count) {
   const shuffled = [...CORNY_NAMES].sort(() => Math.random() - 0.5);
@@ -1086,7 +1097,9 @@ function buildProjected() {
 
     (team.players||[]).forEach(p => {
       if(!p.name?.trim()) return;
-      const preseason = PRESEASON_PROJ[p.name] ?? null;
+      const preseason = p.type === "hbp"
+      ? (PRESEASON_HBP_PROJ[p.name] ?? null)
+      : (PRESEASON_PROJ[p.name] ?? null);
       const actual = p.type==="hr" ? (p.effectiveHR||0) : (p.effectiveHBP||0);
 
       // For transaction players, use full season stats for pace (not just since addedAt)
@@ -2131,7 +2144,9 @@ function buildProjectedTeamModal() {
   modal.appendChild(hdr);
   const playerProj = (p) => {
     const actual = p.type==="hr" ? (p.effectiveHR||0) : (p.effectiveHBP||0);
-    const preseason = PRESEASON_PROJ[p.name] ?? null;
+    const preseason = p.type === "hbp"
+      ? (PRESEASON_HBP_PROJ[p.name] ?? null)
+      : (PRESEASON_PROJ[p.name] ?? null);
     // For transaction players, use full season stats for pace
     const baseline = p.addedAt ? (p.type==="hr" ? (p.hrBaseline||0) : (p.hbpBaseline||0)) : 0;
     const totalSeasonStats = actual + baseline;
