@@ -336,6 +336,7 @@ let S = {
   draftState: null,          // live draft state from Firebase
   draftCodes: null,          // { teamId: code } map
   draftMyTeamId: null,       // which team this browser owns
+  myTeamId: null,            // persistent team identity (survives past draft)
   draftCodeInput: "",        // code entry field
   draftCodeError: "",        // error message
   draftSearch: "",           // player search input
@@ -1775,6 +1776,114 @@ async function runDebug() {
   set({dbRunning:false,dbDone:true});
 }
 
+// ── My Team ───────────────────────────────────────────────────────────────────
+function buildMyTeam() {
+  const wrap = h("div",{style:{animation:"fadeIn 0.4s ease"}});
+  const myTeam = S.teams.find(t=>t.id===S.myTeamId);
+
+  if(!myTeam) {
+    wrap.appendChild(h("div",{style:{textAlign:"center",padding:"40px 20px"}},
+      h("div",{style:{fontSize:"40px",marginBottom:"12px"}},"⭐"),
+      h("div",{style:{color:C.text,fontWeight:"700",fontSize:"16px",marginBottom:"8px"}},"No team claimed yet"),
+      h("div",{style:{color:C.muted,fontSize:"13px",marginBottom:"20px"}},"Enter your team code in the Draft tab to claim your team."),
+      h("button",{style:{padding:"10px 24px",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"14px",background:C.accent,border:"none",color:"#fff"},
+        onClick:()=>set({tab:"draft"})
+      },"Go to Draft Tab")
+    ));
+    return wrap;
+  }
+
+  const totalHR = (myTeam.players||[]).filter(p=>!p.droppedAt).reduce((s,p)=>s+(p.effectiveHR||0),0);
+  const totalHBP = (myTeam.players||[]).filter(p=>!p.droppedAt).reduce((s,p)=>s+(p.effectiveHBP||0),0);
+  const totalPts = totalHR + totalHBP;
+  const sorted = [...S.teams].sort((a,b)=>{
+    const sA=(a.players||[]).filter(p=>!p.droppedAt).reduce((s,p)=>s+(p.effectiveHR||0)+(p.effectiveHBP||0),0);
+    const sB=(b.players||[]).filter(p=>!p.droppedAt).reduce((s,p)=>s+(p.effectiveHR||0)+(p.effectiveHBP||0),0);
+    return sB-sA;
+  });
+  const rank = sorted.findIndex(t=>t.id===myTeam.id)+1;
+  const suffix = rank===1?"st":rank===2?"nd":rank===3?"rd":"th";
+
+  // Team hero card
+  const teamCard=h("div",{style:{background:`linear-gradient(135deg,${C.accent}18,${C.surface}88)`,border:`2px solid ${C.accent}55`,borderRadius:"16px",padding:"20px",marginBottom:"20px",textAlign:"center"}});
+  teamCard.appendChild(h("div",{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:"32px",color:C.accent,letterSpacing:"0.04em",lineHeight:"1",marginBottom:"4px"}},myTeam.name));
+  if(myTeam.owner) teamCard.appendChild(h("div",{style:{color:C.muted,fontSize:"13px",marginBottom:"14px"}},myTeam.owner));
+  const statsRow=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"10px",marginBottom:"14px"}});
+  [[`${rank}${suffix}`,"Rank",C.accent],[totalHR,"HRs",C.red],[totalHBP,"HBPs",C.green]].forEach(([val,lbl,col])=>{
+    const cell=h("div",{style:{background:C.card,borderRadius:"10px",padding:"10px 8px",textAlign:"center"}});
+    cell.appendChild(h("div",{style:{color:col,fontFamily:"'Bebas Neue',sans-serif",fontSize:"28px",lineHeight:"1"}},String(val)));
+    cell.appendChild(h("div",{style:{color:C.muted,fontSize:"10px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginTop:"2px"}},lbl));
+    statsRow.appendChild(cell);
+  });
+  teamCard.appendChild(statsRow);
+  teamCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px"}},`${totalPts} total points`));
+  wrap.appendChild(teamCard);
+
+  // Roster
+  wrap.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"My Roster"));
+  const rosterCard=h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"12px",overflow:"hidden",marginBottom:"20px"}});
+  const hrPlayers=(myTeam.players||[]).filter(p=>p.type==="hr");
+  const hbpPlayer=(myTeam.players||[]).find(p=>p.type==="hbp");
+  const hasAnyPlayers=(myTeam.players||[]).some(p=>p.name?.trim());
+
+  if(hrPlayers.length&&hrPlayers.some(p=>p.name?.trim())) {
+    rosterCard.appendChild(h("div",{style:{background:C.surface,padding:"8px 14px",borderBottom:`1px solid ${C.border}22`}},h("span",{style:{color:C.red,fontSize:"10px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em"}},"⚾ HR Players")));
+    hrPlayers.forEach((p,i)=>{
+      if(!p.name?.trim()) return;
+      const dropped=!!p.droppedAt;
+      const row=h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 14px",borderBottom:i<hrPlayers.length-1?`1px solid ${C.border}11`:"none",opacity:dropped?"0.45":"1"}});
+      const left=h("div",{}); left.appendChild(h("div",{style:{color:dropped?C.muted:C.text,fontWeight:"600",fontSize:"14px",textDecoration:dropped?"line-through":"none"}},p.name));
+      const tags=h("div",{style:{display:"flex",gap:"6px",marginTop:"3px"}});
+      if(p.teamAbbr) tags.appendChild(h("span",{style:{color:C.muted,fontSize:"11px"}},p.teamAbbr));
+      if(dropped) tags.appendChild(h("span",{style:{color:C.red,fontSize:"10px",fontWeight:"700"}},"DROPPED"));
+      if(p.addedAt) tags.appendChild(h("span",{style:{color:C.green,fontSize:"10px",fontWeight:"700"}},"ADDED"));
+      left.appendChild(tags); row.appendChild(left);
+      row.appendChild(h("div",{style:{color:C.red,fontFamily:"'Bebas Neue',sans-serif",fontSize:"26px",lineHeight:"1"}},String(p.effectiveHR||0)));
+      rosterCard.appendChild(row);
+    });
+  }
+  if(hbpPlayer?.name?.trim()) {
+    rosterCard.appendChild(h("div",{style:{background:C.surface,padding:"8px 14px",borderBottom:`1px solid ${C.border}22`,borderTop:`1px solid ${C.border}`}},h("span",{style:{color:C.green,fontSize:"10px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em"}},"🎯 HBP Player")));
+    const dropped=!!hbpPlayer.droppedAt;
+    const row=h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 14px",opacity:dropped?"0.45":"1"}});
+    const left=h("div",{}); left.appendChild(h("div",{style:{color:dropped?C.muted:C.text,fontWeight:"600",fontSize:"14px",textDecoration:dropped?"line-through":"none"}},hbpPlayer.name));
+    const tags=h("div",{style:{display:"flex",gap:"6px",marginTop:"3px"}});
+    if(hbpPlayer.teamAbbr) tags.appendChild(h("span",{style:{color:C.muted,fontSize:"11px"}},hbpPlayer.teamAbbr));
+    if(dropped) tags.appendChild(h("span",{style:{color:C.red,fontSize:"10px",fontWeight:"700"}},"DROPPED"));
+    if(hbpPlayer.addedAt) tags.appendChild(h("span",{style:{color:C.green,fontSize:"10px",fontWeight:"700"}},"ADDED"));
+    left.appendChild(tags); row.appendChild(left);
+    row.appendChild(h("div",{style:{color:C.green,fontFamily:"'Bebas Neue',sans-serif",fontSize:"26px",lineHeight:"1"}},String(hbpPlayer.effectiveHBP||0)));
+    rosterCard.appendChild(row);
+  }
+  if(!hasAnyPlayers) rosterCard.appendChild(h("div",{style:{color:C.muted,fontSize:"13px",padding:"20px",textAlign:"center"}},"No players yet — complete the draft to see your roster here."));
+  wrap.appendChild(rosterCard);
+
+  // Standings context
+  wrap.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"League Standings"));
+  const standCard=h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"12px",overflow:"hidden",marginBottom:"20px"}});
+  sorted.forEach((t,i)=>{
+    const tPts=(t.players||[]).filter(p=>!p.droppedAt).reduce((s,p)=>s+(p.effectiveHR||0)+(p.effectiveHBP||0),0);
+    const isMe=t.id===myTeam.id;
+    const row=h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",borderBottom:i<sorted.length-1?`1px solid ${C.border}22`:"none",background:isMe?`${C.accent}15`:"transparent",borderLeft:isMe?`3px solid ${C.accent}`:"3px solid transparent"}});
+    row.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"10px"}},
+      h("div",{style:{color:isMe?C.accent:C.muted,fontWeight:"700",fontSize:"12px",minWidth:"20px"}},`${i+1}.`),
+      h("div",{},h("div",{style:{color:isMe?C.accent:C.text,fontWeight:isMe?"800":"600",fontSize:"13px"}},t.name),t.owner?h("div",{style:{color:C.muted,fontSize:"11px"}},t.owner):null)
+    ));
+    row.appendChild(h("div",{style:{color:isMe?C.accent:C.text,fontFamily:"'Bebas Neue',sans-serif",fontSize:"22px"}},String(tPts)));
+    standCard.appendChild(row);
+  });
+  wrap.appendChild(standCard);
+
+  // Switch / sign out
+  wrap.appendChild(h("div",{style:{textAlign:"center",paddingBottom:"8px"}},
+    h("button",{style:{fontSize:"12px",color:C.muted,background:"none",border:`1px solid ${C.border}`,borderRadius:"6px",cursor:"pointer",padding:"6px 14px"},
+      onClick:()=>{ if(confirm("Clear your team identity? You can reclaim it with your code anytime.")) { localStorage.removeItem("draftTeamId"); set({myTeamId:null,draftMyTeamId:null,tab:"standings"}); } }
+    },"Switch Team / Sign Out")
+  ));
+
+  return wrap;
+}
+
 // ── Rosters ───────────────────────────────────────────────────────────────────
 async function openSpotlight(playerName, fantasyTeam, type) {
   set({spotlightPlayer:{name:playerName, fantasyTeam, type}, spotlightData:null, spotlightLoading:true});
@@ -2650,7 +2759,7 @@ function claimTeamByCode(code) {
   if(!entry) { set({draftCodeError:"Invalid code. Double-check with your commissioner."}); return; }
   const teamId = parseInt(entry[0]);
   localStorage.setItem("draftTeamId", String(teamId));
-  set({draftMyTeamId: teamId, draftCodeError:""});
+  set({draftMyTeamId: teamId, myTeamId: teamId, draftCodeError:""});
 }
 
 // Search MLB API for players
@@ -3268,9 +3377,15 @@ function render() {
   // Header
   const header=h("div",{style:{background:`linear-gradient(135deg,${C.surface} 0%,#0d1729 100%)`,borderBottom:`1px solid ${C.border}`,paddingTop:"max(env(safe-area-inset-top), 20px)",paddingBottom:"16px",paddingLeft:"20px",paddingRight:"20px"}});
   const hInner=h("div",{style:{maxWidth:"640px",margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:"12px"}});
+  const myTeamForHeader = S.myTeamId !== null ? S.teams.find(t=>t.id===S.myTeamId) : null;
   const titleBlock=h("div",{},
     h("div",{style:{fontFamily:"'Bebas Neue', sans-serif",fontSize:"38px",letterSpacing:"0.05em",color:C.accent,lineHeight:"1"}},`⚾ ${S.leagueName||"DINGERS ONLY"}`),
-    h("div",{style:{color:C.muted,fontSize:"13px",letterSpacing:"0.15em",textTransform:"uppercase",marginTop:"2px"}},"Fantasy Baseball · 2026"),
+    myTeamForHeader
+      ? h("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginTop:"4px"}},
+          h("div",{style:{background:C.accent,color:"#fff",fontWeight:"800",fontSize:"11px",padding:"3px 10px",borderRadius:"20px",letterSpacing:"0.06em"}},`⭐ ${myTeamForHeader.name}`),
+          myTeamForHeader.owner ? h("div",{style:{color:C.muted,fontSize:"11px"}},myTeamForHeader.owner) : null
+        )
+      : h("div",{style:{color:C.muted,fontSize:"13px",letterSpacing:"0.15em",textTransform:"uppercase",marginTop:"2px"}},"Fantasy Baseball · 2026"),
     h("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginTop:"10px"}},
       h("button",{style:{padding:"6px 14px",borderRadius:"6px",cursor:"pointer",fontWeight:"700",fontSize:"12px",background:`${C.accent}22`,border:`1px solid ${C.accent}55`,color:C.accent,opacity:S.refreshing?"0.6":"1"},onClick:refreshAllStats},S.refreshing?"⟳ Refreshing…":"⟳ Refresh Stats"),
       S.refreshStatus?h("span",{style:{color:C.green,fontSize:"12px"}},S.refreshStatus):S.lastUpdated?h("span",{style:{color:C.muted,fontSize:"11px"}},`Updated ${fmtTime(S.lastUpdated)}`):null
@@ -3285,6 +3400,18 @@ function render() {
     pwRow.append(pwInp,h("button",{style:{padding:"7px 12px",borderRadius:"6px",cursor:"pointer",background:C.accent,border:"none",color:"#ffffff",fontWeight:"700",fontSize:"13px"},onClick:()=>handleLogin(pwInp.value)},"Enter"));
     authBlock.appendChild(pwRow);
     if(S.pwError) authBlock.appendChild(h("span",{style:{color:C.red,fontSize:"12px"}},"Incorrect password"));
+    // Switch team / sign out
+    if(S.myTeamId !== null) {
+      authBlock.appendChild(h("button",{
+        style:{fontSize:"11px",color:C.muted,background:"none",border:"none",cursor:"pointer",textDecoration:"underline",padding:"0",marginTop:"2px"},
+        onClick:()=>{
+          if(confirm("Switch teams or sign out? This will clear your team identity.")) {
+            localStorage.removeItem("draftTeamId");
+            set({myTeamId:null, draftMyTeamId:null, tab:"standings"});
+          }
+        }
+      },"Switch / Sign Out"));
+    }
   } else {
     authBlock.appendChild(h("button",{style:{padding:"7px 14px",borderRadius:"6px",cursor:"pointer",background:C.accent,border:"none",color:"#ffffff",fontWeight:"700",fontSize:"13px"},onClick:()=>{set({showCommish:true,cpLocal:JSON.parse(JSON.stringify(S.teams)),cpActive:0});}},"⚙️ Manage League"));
   }
@@ -3293,7 +3420,18 @@ function render() {
   app.appendChild(header);
 
   // Tabs
-  const tabs=[{id:"standings",label:"🏆 Standings"},{id:"leaderboard",label:"📊 Leaderboard"},{id:"projected",label:"🔮 Projected"},{id:"scores",label:"⚾ Scores"},{id:"recent",label:"📅 Recent"},{id:"history",label:"📈 History"},{id:"rules",label:"📖 Rules"},{id:"draft",label:"🎯 Draft"}];
+  const myTeam = S.myTeamId !== null ? S.teams.find(t=>t.id===S.myTeamId) : null;
+  const tabs=[
+    ...(myTeam ? [{id:"myteam",label:"⭐ My Team"}] : []),
+    {id:"standings",label:"🏆 Standings"},
+    {id:"leaderboard",label:"📊 Leaderboard"},
+    {id:"projected",label:"🔮 Projected"},
+    {id:"scores",label:"⚾ Scores"},
+    {id:"recent",label:"📅 Recent"},
+    {id:"history",label:"📈 History"},
+    {id:"rules",label:"📖 Rules"},
+    {id:"draft",label:"🎯 Draft"},
+  ];
   const tabBar=h("div",{style:{borderBottom:`1px solid ${C.border}`,background:C.surface}});
   const tabInner=h("div",{style:{maxWidth:"640px",margin:"0 auto",display:"flex",padding:"0 16px",overflowX:"auto"}});
   tabs.forEach(tab=>{
@@ -3315,6 +3453,7 @@ function render() {
   else if(S.tab==="rules") body.appendChild(buildRules());
   else if(S.tab==="debug") body.appendChild(buildDebug());
   else if(S.tab==="draft") body.appendChild(buildDraft());
+  else if(S.tab==="myteam") body.appendChild(buildMyTeam());
   app.appendChild(body);
 
   if(S.selectedLogo !== null) app.appendChild(buildLogoModal());
@@ -3335,6 +3474,15 @@ function handleLogin(val) {
 // This ensures transactions are available when onSnapshot fires
 // Subscribe to live draft state (runs independently of league data)
 subscribeDraft();
+
+// Hydrate persistent team identity from localStorage
+(function() {
+  const saved = localStorage.getItem("draftTeamId");
+  if(saved !== null) {
+    const tid = parseInt(saved);
+    if(!isNaN(tid)) S.myTeamId = tid;
+  }
+})();
 
 loadTransactions().then(() => {
   // Now start the Firebase listener — S.transactions is populated
