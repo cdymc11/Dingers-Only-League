@@ -1929,7 +1929,8 @@ async function openSpotlight(playerName, fantasyTeam, type) {
     const gd = await gr.json();
     // gameLog splits come back newest-first, take last 3
     const allSplits = gd.stats?.[0]?.splits || [];
-    const gameSplits = allSplits.slice(0, 3);
+    // API returns oldest-first — reverse to get most recent games first, take last 3
+    const gameSplits = [...allSplits].reverse().slice(0, 3);
     const gameLog = gameSplits.map(g => ({
       date: g.date || "",
       opponent: g.opponent?.name || "—",
@@ -2050,15 +2051,12 @@ function buildSpotlightModal() {
       statBox("OPS", sd.last7.ops||".---"),
     );
     modal.appendChild(last7Grid);
-  }
 
     // Game log — last 3 games
-    // Game log section
     modal.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"10px"}},"Last 3 Games"));
     if(sd.gameLog === null) {
       modal.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",padding:"10px 0 16px",textAlign:"center"}},"Loading game log…"));
     } else if(sd.gameLog?.length) {
-      modal.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"10px"}},"Last 3 Games"));
       const logCard = h("div",{style:{background:C.bg,border:`1px solid ${C.border}`,borderRadius:"10px",overflow:"hidden",marginBottom:"20px"}});
 
       // Column headers
@@ -2106,6 +2104,7 @@ function buildSpotlightModal() {
     } else {
       modal.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",padding:"4px 0 16px"}},"No recent games found."));
     }
+  } // end if(sd)
 
   modal.appendChild(h("button",{style:{width:"100%",padding:"10px",background:"transparent",border:`1px solid ${C.border}`,borderRadius:"8px",color:C.muted,cursor:"pointer",fontSize:"14px"},onClick:()=>set({spotlightPlayer:null,spotlightData:null})},"Close"));
   overlay.appendChild(modal);
