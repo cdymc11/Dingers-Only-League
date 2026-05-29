@@ -1897,14 +1897,26 @@ async function openSpotlight(playerName, fantasyTeam, type) {
   if(!playerId) { set({spotlightLoading:false}); return; }
   const season = new Date().getFullYear();
   try {
-    const [sr, lr] = await Promise.all([
+    const [sr, lr, gr] = await Promise.all([
       fetch(`https://statsapi.mlb.com/api/v1/people/${playerId}/stats?stats=season&group=hitting&season=${season}&sportId=1`),
-      fetch(`https://statsapi.mlb.com/api/v1/people/${playerId}/stats?stats=lastXGames&group=hitting&season=${season}&sportId=1&limit=7`)
+      fetch(`https://statsapi.mlb.com/api/v1/people/${playerId}/stats?stats=lastXGames&group=hitting&season=${season}&sportId=1&limit=7`),
+      fetch(`https://statsapi.mlb.com/api/v1/people/${playerId}/stats?stats=gameLog&group=hitting&season=${season}&sportId=1&limit=5`)
     ]);
-    const [sd, ld] = await Promise.all([sr.json(), lr.json()]);
+    const [sd, ld, gd] = await Promise.all([sr.json(), lr.json(), gr.json()]);
     const season_split = sd.stats?.[0]?.splits?.[0]?.stat || {};
     const last7_split = ld.stats?.[0]?.splits?.[0]?.stat || {};
-    set({spotlightLoading:false, spotlightData:{season:season_split, last7:last7_split, playerId}});
+    // Game log — last 3 games played, most recent first
+    const gameSplits = (gd.stats?.[0]?.splits || []).slice(0,3);
+    const gameLog = gameSplits.map(g => ({
+      date: g.date || "",
+      opponent: g.opponent?.name || g.team?.name || "—",
+      isHome: g.isHome ?? true,
+      hr: g.stat?.homeRuns ?? 0,
+      hbp: g.stat?.hitByPitch ?? 0,
+      hits: g.stat?.hits ?? 0,
+      ab: g.stat?.atBats ?? 0,
+    }));
+    set({spotlightLoading:false, spotlightData:{season:season_split, last7:last7_split, gameLog, playerId}});
   } catch(e) {
     set({spotlightLoading:false, spotlightData:null});
   }
@@ -2012,6 +2024,55 @@ function buildSpotlightModal() {
     );
     modal.appendChild(last7Grid);
   }
+
+    // Game log — last 3 games
+    if(sd.gameLog?.length) {
+      modal.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"10px"}},"Last 3 Games"));
+      const logCard = h("div",{style:{background:C.bg,border:`1px solid ${C.border}`,borderRadius:"10px",overflow:"hidden",marginBottom:"20px"}});
+
+      // Column headers
+      const colHdr = h("div",{style:{display:"grid",gridTemplateColumns:"90px 1fr 52px",gap:"0",padding:"6px 12px",borderBottom:`1px solid ${C.border}22`,background:C.surface}});
+      ["Date","Opponent",sp.type==="hr"?"HR":"HBP"].forEach((lbl,i)=>{
+        colHdr.appendChild(h("div",{style:{color:C.muted,fontSize:"10px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.06em",textAlign:i===2?"center":"left"}},lbl));
+      });
+      logCard.appendChild(colHdr);
+
+      sd.gameLog.forEach((g,i) => {
+        const statVal = sp.type==="hr" ? g.hr : g.hbp;
+        const hasEvent = statVal > 0;
+        const row = h("div",{style:{
+          display:"grid", gridTemplateColumns:"90px 1fr 52px", gap:"0",
+          padding:"10px 12px",
+          borderBottom:i<sd.gameLog.length-1?`1px solid ${C.border}11`:"none",
+          background:hasEvent?`${typeColor}08`:"transparent"
+        }});
+
+        // Date — format YYYY-MM-DD → "Mon Jun 3"
+        let dateStr = g.date;
+        try {
+          const d = new Date(g.date+"T12:00:00");
+          dateStr = d.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+        } catch(e){}
+        row.appendChild(h("div",{style:{color:C.muted,fontSize:"12px"}},dateStr));
+
+        // Opponent with home/away indicator
+        const oppStr = (g.isHome ? "vs " : "@ ") + (g.opponent.length > 16 ? g.opponent.substring(0,14)+"…" : g.opponent);
+        row.appendChild(h("div",{style:{color:C.text,fontSize:"12px",fontWeight:"500"}},oppStr));
+
+        // Stat value
+        row.appendChild(h("div",{style:{
+          color:hasEvent?typeColor:C.muted,
+          fontFamily:"'Bebas Neue',sans-serif",
+          fontSize:hasEvent?"20px":"14px",
+          fontWeight:hasEvent?"800":"400",
+          textAlign:"center",
+          lineHeight:"1"
+        }},String(statVal)));
+
+        logCard.appendChild(row);
+      });
+      modal.appendChild(logCard);
+    }
 
   modal.appendChild(h("button",{style:{width:"100%",padding:"10px",background:"transparent",border:`1px solid ${C.border}`,borderRadius:"8px",color:C.muted,cursor:"pointer",fontSize:"14px"},onClick:()=>set({spotlightPlayer:null,spotlightData:null})},"Close"));
   overlay.appendChild(modal);
