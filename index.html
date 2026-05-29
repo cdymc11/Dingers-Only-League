@@ -2180,6 +2180,18 @@ function buildProjectedTeamModal() {
       const isLast = i === players.length - 1;
       const row = h("div",{class:"row-hover",style:{display:"flex",alignItems:"center",gap:"4px",padding:"8px 16px",borderBottom:isLast?"none":`1px solid ${C.border}22`,cursor:"pointer"},onClick:()=>openSpotlight(p.name,team.name,p.type)});
       row.appendChild(h("div",{style:{minWidth:"22px",fontSize:"13px",lineHeight:"1"}},heat));
+      // Headshot
+      const pid = PLAYER_IDS[p.name] || null;
+      const hsCircle = h("div",{style:{width:"32px",height:"32px",borderRadius:"50%",background:C.bg,border:`1px solid ${typeColor}44`,overflow:"hidden",flexShrink:"0",display:"flex",alignItems:"center",justifyContent:"center"}});
+      if(pid) {
+        const hsImg = h("img",{style:{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top center"}});
+        hsImg.src = `https://img.mlbstatic.com/mlb-photos/image/upload/w_60,q_80/v1/people/${pid}/headshot/67/current`;
+        hsImg.onerror = () => { hsCircle.innerHTML = ""; hsCircle.appendChild(h("div",{style:{fontSize:"14px",color:C.muted}},"👤")); };
+        hsCircle.appendChild(hsImg);
+      } else {
+        hsCircle.appendChild(h("div",{style:{fontSize:"14px",color:C.muted}},"👤"));
+      }
+      row.appendChild(hsCircle);
       const nameCol = h("div",{style:{flex:"1",minWidth:0}});
       const nameEl = h("span",{style:{color:p.droppedAt?C.muted:C.text,fontWeight:"600",fontSize:"13px"}},p.name);
       if(p.teamAbbr) nameEl.appendChild(h("span",{style:{color:C.muted,fontWeight:"400",fontSize:"11px"}},` (${p.teamAbbr})`));
