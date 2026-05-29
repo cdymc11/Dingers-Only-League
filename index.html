@@ -331,6 +331,7 @@ let S = {
   backfillRunning: false, backfillStatus: "", backfillDone: false,
   setupDraftRounds: 8,
   draftFormat: "snake",   // "snake" | "linear"
+  commishSections: {league:true, roster:true, transactions:false, draft:false}, // open/closed
   // draft
   draftState: null,          // live draft state from Firebase
   draftCodes: null,          // { teamId: code } map
@@ -2079,26 +2080,44 @@ function buildCommish() {
   const panel = h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"16px",padding:"24px 28px",maxWidth:"640px",width:"100%",marginTop:"20px",marginBottom:"20px"}});
 
   // ── Helper: section wrapper with header ──────────────────────────────────
-  const section = (label, emoji, borderTop=true) => {
+  const section = (label, emoji, key, borderTop=true) => {
+    const isOpen = S.commishSections?.[key] !== false;
     const wrap = h("div",{style:{marginTop:borderTop?"32px":"0"}});
-    // Full-width horizontal subheader bar
+    // Clickable full-width horizontal subheader bar
     const hdr = h("div",{style:{
       display:"flex", alignItems:"center", gap:"10px",
       background:`linear-gradient(90deg, ${C.accent}18, ${C.surface}00)`,
       border:`1px solid ${C.accent}33`,
-      borderRadius:"8px", padding:"10px 14px",
-      marginBottom:"16px",
-      position:"relative", overflow:"hidden"
+      borderRadius: isOpen ? "8px 8px 0 0" : "8px",
+      padding:"10px 14px",
+      cursor:"pointer", userSelect:"none",
+      position:"relative", overflow:"hidden",
+      transition:"border-radius 0.2s"
     }});
+    hdr.addEventListener("click", () => {
+      const cur = S.commishSections || {};
+      set({commishSections: {...cur, [key]: !cur[key]}});
+    });
     // Accent left bar
-    const bar = h("div",{style:{
+    hdr.appendChild(h("div",{style:{
       position:"absolute", left:"0", top:"0", bottom:"0",
       width:"4px", background:C.accent, borderRadius:"8px 0 0 8px"
-    }});
-    hdr.appendChild(bar);
+    }}));
     hdr.appendChild(h("span",{style:{fontSize:"16px",marginLeft:"4px"}},emoji));
-    hdr.appendChild(h("div",{style:{color:C.accent,fontWeight:"800",fontSize:"13px",letterSpacing:"0.06em",textTransform:"uppercase"}},label));
+    hdr.appendChild(h("div",{style:{color:C.accent,fontWeight:"800",fontSize:"13px",letterSpacing:"0.06em",textTransform:"uppercase",flex:"1"}},label));
+    hdr.appendChild(h("span",{style:{color:C.accent,fontSize:"14px",fontWeight:"700",marginRight:"4px"}}, isOpen ? "▲" : "▼"));
     wrap.appendChild(hdr);
+    // Body — shown/hidden based on state
+    const body = h("div",{style:{
+      display: isOpen ? "block" : "none",
+      background: C.bg,
+      border: isOpen ? `1px solid ${C.accent}33` : "none",
+      borderTop: "none",
+      borderRadius: "0 0 8px 8px",
+      padding: isOpen ? "16px" : "0",
+    }});
+    wrap.appendChild(body);
+    wrap._body = body; // expose body for content injection
     return wrap;
   };
 
@@ -2122,21 +2141,21 @@ function buildCommish() {
   // ════════════════════════════════════════════════════════════════════════
   // SECTION 1 — LEAGUE SETTINGS
   // ════════════════════════════════════════════════════════════════════════
-  const leagueSection = section("League Settings","🏟️", false);
-  leagueSection.appendChild(note("Edit the league name and adjust the number of teams. Changes take effect when you hit Save."));
+  const leagueSection = section("League Settings","🏟️","league",false); const lsBody = leagueSection._body;
+  lsBody.appendChild(note("Edit the league name and adjust the number of teams. Changes take effect when you hit Save."));
 
   // League name
-  leagueSection.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"6px"}},"League Name"));
+  lsBody.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"6px"}},"League Name"));
   const lnInp = h("input",{style:{width:"100%",padding:"10px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",fontFamily:"'Bebas Neue',sans-serif",letterSpacing:"0.05em",outline:"none",marginBottom:"16px",boxSizing:"border-box"}});
   lnInp.value = S.leagueName || "DINGERS ONLY";
   lnInp.addEventListener("blur", async e => {
     const newName = e.target.value.trim().toUpperCase();
     if(newName) { set({leagueName: newName}); await setDoc(leagueRef, { leagueName: newName }, { merge: true }); }
   });
-  leagueSection.appendChild(lnInp);
+  lsBody.appendChild(lnInp);
 
   // Team count
-  leagueSection.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"Number of Teams"));
+  lsBody.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"Number of Teams"));
   const tcRow = h("div",{style:{display:"flex",alignItems:"center",gap:"12px",marginBottom:"6px"}});
   tcRow.appendChild(h("button",{
     style:{width:"36px",height:"36px",borderRadius:"8px",cursor:local.length<=2?"default":"pointer",
@@ -2152,14 +2171,14 @@ function buildCommish() {
     onClick:()=>{ if(local.length>=20) return; const newId=Math.max(...local.map(t=>t.id),-1)+1; set({cpLocal:[...local,{id:newId,name:getRandomTeamNames(local.length+1)[local.length],owner:"",players:[],hasUsedTransaction:false}]}); }
   },"+"));
   tcRow.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginLeft:"4px"}},"teams"));
-  leagueSection.appendChild(tcRow);
+  lsBody.appendChild(tcRow);
   panel.appendChild(leagueSection);
 
   // ════════════════════════════════════════════════════════════════════════
   // SECTION 2 — TEAM ROSTER EDITOR
   // ════════════════════════════════════════════════════════════════════════
-  const rosterSection = section("Team Roster Editor","📋");
-  rosterSection.appendChild(note("Select a team below to edit their name, owner, and players. The number next to each player is their current stat total — you can manually override it if needed."));
+  const rosterSection = section("Team Roster Editor","📋","roster"); const rsBody = rosterSection._body;
+  rsBody.appendChild(note("Select a team below to edit their name, owner, and players. The number next to each player is their current stat total — you can manually override it if needed."));
 
   // Team tabs
   const tabs = h("div",{style:{display:"flex",gap:"6px",flexWrap:"wrap",marginBottom:"16px"}});
@@ -2169,7 +2188,7 @@ function buildCommish() {
       border:`1px solid ${S.cpActive===i?C.accent:C.border}`},
     onClick:()=>set({cpActive:i})
   },t.name||`Team ${i+1}`)));
-  rosterSection.appendChild(tabs);
+  rsBody.appendChild(tabs);
 
   // Transaction used badge
   if(team.hasUsedTransaction) {
@@ -2181,7 +2200,7 @@ function buildCommish() {
   const nf=h("div"); nf.appendChild(h("label",{style:{color:C.muted,fontSize:"11px",textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:"4px"}},"Team Name")); nf.appendChild(inp(team.name,v=>{local[S.cpActive].name=v;set({cpLocal:local})}));
   const of=h("div"); of.appendChild(h("label",{style:{color:C.muted,fontSize:"11px",textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:"4px"}},"Owner")); of.appendChild(inp(team.owner,v=>{local[S.cpActive].owner=v;set({cpLocal:local})},"Owner name"));
   fields.append(nf,of);
-  rosterSection.appendChild(fields);
+  rsBody.appendChild(fields);
 
   // HR Players
   const hrSub = h("div",{style:{marginBottom:"14px"}});
@@ -2216,7 +2235,7 @@ function buildCommish() {
       onClick:()=>{const name=replHRInp.value.trim();if(!name)return;const today=new Date().toISOString().split("T")[0];local[S.cpActive].players.push({name,type:"hr",droppedAt:null,addedAt:today,rawHR:0,effectiveHR:0,hrBaseline:null,teamAbbr:null});replHRInp.value="";set({cpLocal:local});}},"Add"));
     rs.appendChild(rr); hrSub.appendChild(rs);
   }
-  rosterSection.appendChild(hrSub);
+  rsBody.appendChild(hrSub);
 
   // HBP Player
   const hbpSub = h("div",{style:{marginBottom:"16px"}});
@@ -2249,14 +2268,14 @@ function buildCommish() {
       onClick:()=>{const name=replHBPInp.value.trim();if(!name)return;const today=new Date().toISOString().split("T")[0];local[S.cpActive].players.push({name,type:"hbp",droppedAt:null,addedAt:today,rawHBP:0,effectiveHBP:0,hbpBaseline:null,teamAbbr:null});replHBPInp.value="";set({cpLocal:local});}},"Add"));
     rs.appendChild(rr); hbpSub.appendChild(rs);
   }
-  rosterSection.appendChild(hbpSub);
+  rsBody.appendChild(hbpSub);
 
   // Save / Refresh actions
   const actNote = h("div",{style:{background:`${C.accent}0d`,border:`1px solid ${C.accent}33`,borderRadius:"8px",padding:"10px 12px",marginBottom:"12px",fontSize:"12px",color:C.muted,lineHeight:"1.5"}});
   actNote.appendChild(h("div",{style:{color:C.accent,fontWeight:"700",fontSize:"12px",marginBottom:"2px"}},"💾 Remember to Save"));
   actNote.appendChild(document.createTextNode("All edits above are local until you click Save. Refresh Live Stats pulls current MLB numbers for every player but does not save — hit Save afterward to commit."));
-  rosterSection.appendChild(actNote);
-  if(S.cpStatus) rosterSection.appendChild(h("div",{style:{color:C.green,fontSize:"13px",fontWeight:"600",marginBottom:"10px"}},S.cpStatus));
+  rsBody.appendChild(actNote);
+  if(S.cpStatus) rsBody.appendChild(h("div",{style:{color:C.green,fontSize:"13px",fontWeight:"600",marginBottom:"10px"}},S.cpStatus));
   const actions=h("div",{style:{display:"flex",gap:"10px",flexWrap:"wrap"}});
   actions.appendChild(h("button",{
     style:{padding:"10px 20px",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"13px",
@@ -2273,14 +2292,14 @@ function buildCommish() {
     style:{padding:"10px 24px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"13px",background:C.accent,border:"none",color:"#ffffff"},
     onClick:async()=>{await saveToFirebase(local);set({cpStatus:"✓ Saved!"});setTimeout(()=>set({cpStatus:""}),2000);}
   },"💾 Save"));
-  rosterSection.appendChild(actions);
+  rsBody.appendChild(actions);
   panel.appendChild(rosterSection);
 
   // ════════════════════════════════════════════════════════════════════════
   // SECTION 3 — HOW TRANSACTIONS WORK
   // ════════════════════════════════════════════════════════════════════════
-  const txSection = section("Transactions","🔄");
-  txSection.appendChild(h("div",{style:{background:`${C.accent}0d`,border:`1px solid ${C.accent}22`,borderRadius:"8px",padding:"12px 14px",marginBottom:"14px"}},
+  const txSection = section("Transactions","🔄","transactions"); const txBody = txSection._body;
+  txBody.appendChild(h("div",{style:{background:`${C.accent}0d`,border:`1px solid ${C.accent}22`,borderRadius:"8px",padding:"12px 14px",marginBottom:"14px"}},
     h("div",{style:{color:C.text,fontWeight:"700",fontSize:"12px",marginBottom:"6px"}},"How transactions work:"),
     h("div",{style:{color:C.muted,fontSize:"12px",lineHeight:"1.6"}},
       "Each team gets one transaction per season. To process one: " +
@@ -2294,9 +2313,9 @@ function buildCommish() {
   ));
 
   // Existing transactions
-  txSection.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"Transaction History"));
+  txBody.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"Transaction History"));
   if(S.transactions.length === 0) {
-    txSection.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",padding:"10px 0"}},"No transactions recorded yet."));
+    txBody.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",padding:"10px 0"}},"No transactions recorded yet."));
   } else {
     S.transactions.forEach(tx => {
       const txRow = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"10px 14px",marginBottom:"8px",border:`1px solid ${C.border}`}});
@@ -2319,7 +2338,7 @@ function buildCommish() {
           onClick:async()=>{ const txId=`${tx.teamId}_${tx.addedPlayer.replace(/[^a-zA-Z0-9]/g,"_")}`; await deleteTransaction(txId); }
         },"Remove")
       ));
-      txSection.appendChild(txRow);
+      txBody.appendChild(txRow);
     });
   }
   // Manual transaction form
@@ -2404,15 +2423,15 @@ function buildCommish() {
       }
     }
   },"Submit Transaction"));
-  txSection.appendChild(txFormWrap);
+  txBody.appendChild(txFormWrap);
 
   panel.appendChild(txSection);
 
   // ════════════════════════════════════════════════════════════════════════
   // SECTION 4 — DRAFT MANAGEMENT
   // ════════════════════════════════════════════════════════════════════════
-  const draftSection = section("Draft Management","🎯");
-  draftSection.appendChild(note("Run the live snake draft. Generate a unique code for each team owner, share it with them, then start the draft when everyone is ready."));
+  const draftSection = section("Draft Management","🎯","draft"); const dsBody = draftSection._body;
+  dsBody.appendChild(note("Run the live snake draft. Generate a unique code for each team owner, share it with them, then start the draft when everyone is ready."));
 
   // Step 1: Codes
   const codesCard = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"10px"}});
@@ -2437,7 +2456,7 @@ function buildCommish() {
     style:{padding:"8px 16px",borderRadius:"7px",cursor:"pointer",fontWeight:"700",fontSize:"12px",background:`${C.accent}18`,border:`1px solid ${C.accent}55`,color:C.accent},
     onClick:generateDraftCodes
   },S.draftCodes?"🔄 Regenerate Codes":"🎲 Generate Team Codes"));
-  draftSection.appendChild(codesCard);
+  dsBody.appendChild(codesCard);
 
   // Step 2: Start draft
   const startCard = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"10px"}});
@@ -2486,10 +2505,10 @@ function buildCommish() {
       onClick:()=>initDraft(S.setupDraftRounds||8, S.draftFormat||'snake')
     },"🚀 Start Live Draft"));
   }
-  draftSection.appendChild(startCard);
+  dsBody.appendChild(startCard);
 
   if(currentDraftStatus) {
-    draftSection.appendChild(h("button",{
+    dsBody.appendChild(h("button",{
       style:{padding:"8px 16px",borderRadius:"7px",cursor:"pointer",fontWeight:"700",fontSize:"12px",background:`${C.red}18`,border:`1px solid ${C.red}44`,color:C.red},
       onClick:async()=>{
         if(!confirm("Reset the entire draft? This cannot be undone.")) return;
