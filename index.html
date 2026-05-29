@@ -349,7 +349,21 @@ let S = {
   draftGenStatus: "",        // status message for code gen
 };
 
-function set(partial) { S = {...S, ...partial}; render(); }
+function set(partial) {
+  S = {...S, ...partial};
+  try {
+    render();
+  } catch(err) {
+    console.error("render() crashed:", err);
+    const app = document.getElementById("app");
+    if(app) {
+      const d = document.createElement("div");
+      d.style.cssText = "position:fixed;top:0;left:0;right:0;background:#c0392b;color:#fff;padding:12px 16px;font-size:12px;z-index:99999;white-space:pre-wrap;font-family:monospace;";
+      d.textContent = "JS Error: " + err.message + "\n" + (err.stack||"").split("\n").slice(0,4).join("\n");
+      document.body.appendChild(d);
+    }
+  }
+}
 
 // Correct known misspellings from old Firebase data
 const NAME_CORRECTIONS = {
@@ -3452,7 +3466,6 @@ function buildLeagueSetup() {
 function render() {
   const app = document.getElementById("app");
   app.innerHTML="";
-
   // Show league setup if no teams configured yet
   if(!S.leagueSetup && S.teams.length === 0) {
     app.appendChild(buildLeagueSetup());
