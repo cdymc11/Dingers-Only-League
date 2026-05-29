@@ -987,16 +987,6 @@ const CORNY_NAMES = [
   "The Checked Swing Jury",
 ];
 
-// Populate PRESEASON_PROJ from DRAFT_POOL so heat indicators and blended projections work
-DRAFT_POOL.forEach(p => {
-  if(p.hrProj) PRESEASON_PROJ[p.name] = p.hrProj;
-});
-// HBP projections stored separately — used when player is designated HBP
-const PRESEASON_HBP_PROJ = {};
-DRAFT_POOL.forEach(p => {
-  if(p.hbpProj) PRESEASON_HBP_PROJ[p.name] = p.hbpProj;
-});
-
 function getRandomTeamNames(count) {
   const shuffled = [...CORNY_NAMES].sort(() => Math.random() - 0.5);
   return Array.from({length: count}, (_, i) => shuffled[i % shuffled.length]);
@@ -1071,6 +1061,15 @@ const DRAFT_POOL = [
   {name:"Willson Contreras",  hrProj:14, hbpProj:5,  team:"STL", pos:"C"},
   {name:"Terence Gore",       hrProj:2,  hbpProj:3,  team:"—",   pos:"OF"},
 ];
+
+// Populate PRESEASON_PROJ from DRAFT_POOL so heat indicators and blended projections work
+DRAFT_POOL.forEach(p => {
+  if(p.hrProj) PRESEASON_PROJ[p.name] = p.hrProj;
+});
+const PRESEASON_HBP_PROJ = {};
+DRAFT_POOL.forEach(p => {
+  if(p.hbpProj) PRESEASON_HBP_PROJ[p.name] = p.hbpProj;
+});
 
 function buildProjected() {
   const TOTAL_GAMES = 162;
