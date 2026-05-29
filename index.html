@@ -2255,6 +2255,7 @@ function buildCommish() {
       onClick:()=>{const today=new Date().toISOString().split("T")[0];local[S.cpActive].players[absIdx].droppedAt=today;local[S.cpActive].hasUsedTransaction=true;set({cpLocal:local});}
     },"Drop"));
     if(hbpP.droppedAt) row.appendChild(h("span",{style:{fontSize:"11px",color:C.muted,whiteSpace:"nowrap"}},"dropped"));
+    hbpSub.appendChild(row);
   }
   const drHBP=!!hbpP?.droppedAt, addHBP=team.players.some(p=>p.type==="hbp"&&p.addedAt);
   if(drHBP&&!addHBP){
