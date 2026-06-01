@@ -215,7 +215,7 @@ async function doSignOut() {
 }
 
 // ── Create a new league ───────────────────────────────────────────────────────
-async function createLeague(name, teamCount, userEmail, uid) {
+async function createLeague(name, teamCount, userEmail, uid, startDate=null) {
   const leagueId = generateLeagueId();
   initFirebaseRefs(leagueId);
   setLeagueIdInUrl(leagueId);
@@ -234,6 +234,7 @@ async function createLeague(name, teamCount, userEmail, uid) {
     ownerEmail: userEmail,
     createdAt: new Date().toISOString(),
     lastUpdated: new Date().toISOString(),
+    seasonStartDate: startDate || null,
     teams,
   });
   return leagueId;
@@ -381,6 +382,7 @@ let S = {
   leagueName: "DINGERS ONLY", // editable
   leagueSetup: false, // true when league has been configured
   leagueId: urlLeagueId || null,    // current league ID
+  seasonStartDate: null,            // optional league start date (YYYY-MM-DD)
   currentUser: null,     // Firebase Auth user object
   authScreen: urlLeagueId ? "signin" : "landing", // landing|signin|signup|forgot
   authEmail: "", authPassword: "", authError: "", authLoading: false,
@@ -389,6 +391,7 @@ let S = {
   setupTeamCount: 10,
   setupLeagueName: "",
   setupPIN: "",
+  setupStartDate: "",  // optional league start date
   lastUpdated: null,
   tab: "standings",
   selectedTeam: null,
@@ -561,6 +564,11 @@ async function saveToFirebase(teams) {
 async function refreshAllStats() {
   set({ refreshing: true, refreshStatus: "Fetching stats…" });
 
+  // Check if start date baseline needs to be set
+  const today = new Date().toISOString().split("T")[0];
+  const startDate = S.seasonStartDate;
+  const needsBaseline = startDate && startDate <= today;
+
   // Work from current live teams in S.teams — deep copy so we don't mutate state
   const updated = JSON.parse(JSON.stringify(S.teams));
   const txUpdates = {};
@@ -583,8 +591,27 @@ async function refreshAllStats() {
       // Skip dropped players — their stats are frozen
       if(droppedByTeam[t.id]?.has(p.name)) continue;
       const s = await fetchStats(p.name); if(!s) continue;
-      if(p.type==="hr") p.effectiveHR = s.hr;
-      if(p.type==="hbp") p.effectiveHBP = s.hbp;
+      if(p.type==="hr") {
+        if(needsBaseline && p.hrBaseline === null) {
+          // First refresh on/after start date — lock in baseline
+          p.hrBaseline = s.hr;
+          p.effectiveHR = 0;
+        } else if(needsBaseline && p.hrBaseline !== null) {
+          p.effectiveHR = Math.max(0, s.hr - p.hrBaseline);
+        } else {
+          p.effectiveHR = s.hr;
+        }
+      }
+      if(p.type==="hbp") {
+        if(needsBaseline && p.hbpBaseline === null) {
+          p.hbpBaseline = s.hbp;
+          p.effectiveHBP = 0;
+        } else if(needsBaseline && p.hbpBaseline !== null) {
+          p.effectiveHBP = Math.max(0, s.hbp - p.hbpBaseline);
+        } else {
+          p.effectiveHBP = s.hbp;
+        }
+      }
       if(s.teamAbbr) p.teamAbbr = s.teamAbbr;
     }
   }
@@ -2465,6 +2492,24 @@ function buildCommish() {
   });
   lsBody.appendChild(lnInp);
 
+  // Season start date
+  lsBody.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"4px",marginTop:"16px"}},"Season Start Date"));
+  lsBody.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginBottom:"6px"}},"Stats before this date won\'t count toward standings. Leave blank to count from MLB Opening Day."));
+  const sdInp = h("input",{type:"date",style:{width:"100%",padding:"9px 12px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"14px",outline:"none",marginBottom:"6px",boxSizing:"border-box"}});
+  sdInp.value = S.seasonStartDate || "";
+  sdInp.addEventListener("change", e => { S.seasonStartDate = e.target.value || null; });
+  lsBody.appendChild(sdInp);
+  // Show baseline status
+  const today = new Date().toISOString().split("T")[0];
+  if(S.seasonStartDate) {
+    const isPast = S.seasonStartDate <= today;
+    lsBody.appendChild(h("div",{style:{color:isPast?C.green:C.accent,fontSize:"11px",marginBottom:"4px"}},
+      isPast
+        ? `✓ Active — stats from ${S.seasonStartDate} onward count`
+        : `⏳ Upcoming — starts ${S.seasonStartDate}`
+    ));
+  }
+
   // Team count
   lsBody.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"Number of Teams"));
   const tcRow = h("div",{style:{display:"flex",alignItems:"center",gap:"12px",marginBottom:"6px"}});
@@ -2544,6 +2589,8 @@ function buildCommish() {
     onClick: async () => {
       try {
         await saveToFirebase(local);
+        // Also save seasonStartDate to Firebase
+        if(leagueRef) await setDoc(leagueRef, {seasonStartDate: S.seasonStartDate || null}, {merge:true});
         const withTx = applyTransactions(local, S.transactions);
         set({teams: withTx, cpLocal: JSON.parse(JSON.stringify(local))});
         lsSaveStatus.textContent = "✓ Saved!";
@@ -3640,8 +3687,14 @@ function buildAuthScreen() {
 
     const emailInp = h("input",{type:"email",placeholder:"Your email address",style:{width:"100%",padding:"11px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",outline:"none",marginBottom:"10px",boxSizing:"border-box"}});
     const passInp = h("input",{type:"password",placeholder:"Choose a password (6+ characters)",style:{width:"100%",padding:"11px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",outline:"none",marginBottom:"10px",boxSizing:"border-box"}});
-    const nameInp = h("input",{type:"text",placeholder:"League name (e.g. Dingers Only 2026)",style:{width:"100%",padding:"11px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",outline:"none",marginBottom:"16px",boxSizing:"border-box"}});
-    card.appendChild(emailInp); card.appendChild(passInp); card.appendChild(nameInp);
+    const nameInp = h("input",{type:"text",placeholder:"League name (e.g. Dingers Only 2026)",style:{width:"100%",padding:"11px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",outline:"none",marginBottom:"10px",boxSizing:"border-box"}});
+    // Start date
+    const startDateWrap = h("div",{style:{marginBottom:"16px"}});
+    startDateWrap.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"6px"}},"Season Start Date (optional) — stats before this date won\'t count"));
+    const startDateInp = h("input",{type:"date",style:{width:"100%",padding:"11px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"15px",outline:"none",boxSizing:"border-box"}});
+    startDateWrap.appendChild(startDateInp);
+    startDateWrap.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginTop:"4px"}},"Leave blank to count all stats from MLB Opening Day."));
+    card.appendChild(emailInp); card.appendChild(passInp); card.appendChild(nameInp); card.appendChild(startDateWrap);
 
     card.appendChild(h("button",{
       style:{width:"100%",padding:"13px",borderRadius:"10px",cursor:"pointer",fontWeight:"800",fontSize:"15px",background:C.accent,border:"none",color:"#fff",marginBottom:"12px",opacity:S.authLoading?"0.6":"1"},
@@ -3654,7 +3707,8 @@ function buildAuthScreen() {
         set({authLoading:true, authError:""});
         try {
           const cred = await createUserWithEmailAndPassword(auth, email, pass);
-          const leagueId = await createLeague(name, S.setupTeamCount||10, email, cred.user.uid);
+          const startDate = startDateInp.value || null;
+          const leagueId = await createLeague(name, S.setupTeamCount||10, email, cred.user.uid, startDate);
           set({authLoading:false, leagueId, isCommish:true, commishUnlocked:true, onboardingStep:1});
           // onAuthStateChanged + onSnapshot handle the rest
         } catch(e) {
@@ -4043,6 +4097,7 @@ function startLeagueListener(leagueId) {
         teams: withTx,
         lastUpdated: data.lastUpdated||null,
         leagueName: data.leagueName || S.leagueName,
+        seasonStartDate: data.seasonStartDate || null,
         leagueSetup: true,
         isCommish,
         commishUnlocked: isCommish,
