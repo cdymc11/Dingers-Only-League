@@ -4000,20 +4000,15 @@ function startLeagueListener(leagueId) {
 
   // Load transactions then start snapshot
   loadTransactions().then(() => {
-    // Check commish status
-    getDoc(leagueRef).then(snap0 => {
-      const isCommish = snap0?.exists() && (
-        snap0.data().ownerUID === S.currentUser?.uid ||
-        snap0.data().ownerEmail === S.currentUser?.email
-      );
-      S.isCommish = isCommish;
-      S.commishUnlocked = isCommish;
-    }).catch(() => {});
-
-    // Start live listener
+    // Start live listener — commish check happens inside first snapshot
     onSnapshot(leagueRef, snap => {
       if(!snap.exists()) { set({leagueSetup:false}); return; }
       const data = snap.data();
+      // Determine commish on every snapshot so it's always current
+      const isCommish = !!(
+        data.ownerUID === S.currentUser?.uid ||
+        data.ownerEmail?.toLowerCase() === S.currentUser?.email?.toLowerCase()
+      );
       const merged = (data.teams||[]).map(t => ({...t, players:(t.players||[]).map(p=>({...p}))}));
       const withTx = applyTransactions(merged, S.transactions);
       const newDraftState = data.draftState || S.draftState || null;
@@ -4042,8 +4037,8 @@ function startLeagueListener(leagueId) {
         lastUpdated: data.lastUpdated||null,
         leagueName: data.leagueName || S.leagueName,
         leagueSetup: true,
-        isCommish: S.isCommish,
-        commishUnlocked: S.commishUnlocked,
+        isCommish,
+        commishUnlocked: isCommish,
         draftState: newDraftState,
         draftCodes: newDraftCodes,
         myTeamId: autoMyTeamId !== null ? autoMyTeamId : S.myTeamId,
