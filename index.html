@@ -396,7 +396,8 @@ let S = {
   transactions: [], // [{id, teamId, droppedPlayer, droppedAt, droppedStat, addedPlayer, addedAt, hrBaseline, hbpBaseline, type}]
   hrCelebration: null, // {name, count, type}
   commishInput: "", commishUnlocked: false, showCommish: false, pwError: false, // legacy
-  onboardingStep: 0, // 0 = not shown, 1-5 = step, -1 = dismissed — replaced by Firebase Auth but kept for transition
+  onboardingStep: 0, // 0 = not shown, 1-5 = step, -1 = dismissed
+  foundLeagues: [],  // leagues found during login lookup — replaced by Firebase Auth but kept for transition
   refreshing: false, refreshStatus: "",
   // commissioner panel
   cpActive: 0, cpLocal: null, cpRefreshing: false, cpStatus: "", cpReplHR: "", cpReplHBP: "",
@@ -3517,9 +3518,40 @@ function buildPickLeague() {
   const wrap = h("div",{style:{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px"}});
   wrap.appendChild(h("div",{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:"40px",color:C.accent,letterSpacing:"0.05em",marginBottom:"24px",textAlign:"center"}},"⚾ DINGERS ONLY"));
   const card = h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"16px",padding:"28px 24px",width:"100%",maxWidth:"400px"}});
-  card.appendChild(h("div",{style:{color:C.text,fontWeight:"800",fontSize:"18px",marginBottom:"6px"}},"No League Found"));
-  card.appendChild(h("div",{style:{color:C.muted,fontSize:"13px",lineHeight:"1.5",marginBottom:"20px"}},"You're signed in but there's no league in your URL. Use the link your commissioner sent you, or create a new league."));
+
+  // Loading state
+  if(S.authLoading) {
+    card.appendChild(h("div",{style:{textAlign:"center",padding:"20px 0"}},
+      h("div",{style:{color:C.muted,fontSize:"14px"}},"Finding your league…")
+    ));
+    wrap.appendChild(card);
+    return wrap;
+  }
+
+  // Found multiple leagues — let user pick
+  if(S.foundLeagues?.length > 1) {
+    card.appendChild(h("div",{style:{color:C.text,fontWeight:"800",fontSize:"18px",marginBottom:"6px"}},"Your Leagues"));
+    card.appendChild(h("div",{style:{color:C.muted,fontSize:"13px",marginBottom:"16px"}},"Select a league to continue:"));
+    S.foundLeagues.forEach(league => {
+      card.appendChild(h("button",{
+        style:{width:"100%",padding:"12px 16px",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"14px",
+          background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,marginBottom:"8px",textAlign:"left"},
+        onClick:async()=>{
+          initFirebaseRefs(league.id);
+          setLeagueIdInUrl(league.id);
+          set({leagueId:league.id, authScreen:"landing"});
+          window.location.reload();
+        }
+      },league.name || league.id));
+    });
+  } else {
+    // No leagues found
+    card.appendChild(h("div",{style:{color:C.text,fontWeight:"800",fontSize:"18px",marginBottom:"6px"}},"No League Found"));
+    card.appendChild(h("div",{style:{color:C.muted,fontSize:"13px",lineHeight:"1.5",marginBottom:"16px"}},"We couldn't find a league linked to your account. Use the link your commissioner sent you, or create a new league."));
+  }
+
   if(S.authError) card.appendChild(h("div",{style:{color:C.red,fontSize:"12px",marginBottom:"12px",padding:"8px 12px",background:C.red+"11",borderRadius:"6px"}},S.authError));
+
   card.appendChild(h("button",{
     style:{width:"100%",padding:"13px",borderRadius:"10px",cursor:"pointer",fontWeight:"800",fontSize:"15px",background:C.accent,border:"none",color:"#fff",marginBottom:"10px"},
     onClick:()=>set({authScreen:"signup",authError:""})
@@ -3819,7 +3851,7 @@ function render() {
   }
 
   // Show league picker if signed in but no league selected
-  if(S.authScreen === "pick_league") {
+  if(S.authScreen === "pick_league" || S.authScreen === "finding_league") {
     app.appendChild(buildPickLeague());
     return;
   }
@@ -3960,9 +3992,54 @@ onAuthStateChanged(auth, async (user) => {
   let leagueId = S.leagueId || getLeagueIdFromUrl();
 
   if(!leagueId) {
-    // User has an account but no league in URL — show landing with signed-in state
-    set({currentUser:user, authScreen:"pick_league", authError:""});
-    return;
+    // No league in URL — search Firebase for leagues this user belongs to
+    set({currentUser:user, authScreen:"finding_league", authError:"", authLoading:true});
+    try {
+      // Check leagues where user is owner
+      const { getDocs: gds, query: q2, where, collection: col2 } =
+        await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+      const leaguesCol = col2(db, "leagues");
+      // Query by ownerUID first
+      const ownerSnap = await gds(q2(leaguesCol, where("ownerUID","==",user.uid)));
+      const found = [];
+      ownerSnap.forEach(d => found.push({id:d.id, ...d.data()}));
+      // Also check by email in teams array (for non-commish members)
+      if(!found.length) {
+        // Broader search — get all leagues and check locally
+        // (For small scale this is fine; optimize with index later)
+        const allSnap = await gds(q2(leaguesCol));
+        allSnap.forEach(d => {
+          const data = d.data();
+          const hasEmail = (data.teams||[]).some(t => 
+            t.email?.toLowerCase() === user.email?.toLowerCase()
+          );
+          if(hasEmail) found.push({id:d.id, ...data});
+        });
+      }
+      if(found.length === 1) {
+        // Exactly one league — auto-redirect
+        leagueId = found[0].id;
+        initFirebaseRefs(leagueId);
+        setLeagueIdInUrl(leagueId);
+        set({currentUser:user, leagueId, authLoading:false, authError:""});
+        // Fall through to league load below
+      } else if(found.length > 1) {
+        // Multiple leagues — let user pick
+        set({currentUser:user, authScreen:"pick_league", authLoading:false,
+             foundLeagues: found.map(l=>({id:l.id, name:l.leagueName||l.id}))});
+        return;
+      } else {
+        // No leagues found
+        set({currentUser:user, authScreen:"pick_league", authLoading:false,
+             foundLeagues:[], authError:""});
+        return;
+      }
+    } catch(e) {
+      console.error("League lookup failed:", e);
+      set({currentUser:user, authScreen:"pick_league", authLoading:false,
+           foundLeagues:[], authError:"Couldn't find your league. Try using your league link."});
+      return;
+    }
   }
 
   // Init refs and load the league
