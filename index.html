@@ -395,7 +395,8 @@ let S = {
   historyWeeks: null, historyLoading: false, historyWeekIdx: 0,
   transactions: [], // [{id, teamId, droppedPlayer, droppedAt, droppedStat, addedPlayer, addedAt, hrBaseline, hbpBaseline, type}]
   hrCelebration: null, // {name, count, type}
-  commishInput: "", commishUnlocked: false, showCommish: false, pwError: false, // legacy — replaced by Firebase Auth but kept for transition
+  commishInput: "", commishUnlocked: false, showCommish: false, pwError: false, // legacy
+  onboardingStep: 0, // 0 = not shown, 1-5 = step, -1 = dismissed — replaced by Firebase Auth but kept for transition
   refreshing: false, refreshStatus: "",
   // commissioner panel
   cpActive: 0, cpLocal: null, cpRefreshing: false, cpStatus: "", cpReplHR: "", cpReplHBP: "",
@@ -2762,36 +2763,11 @@ function buildCommish() {
   panel.appendChild(inviteSection);
 
   const draftSection = section("Draft Management","🎯","draft"); const dsBody = draftSection._body;
-  dsBody.appendChild(note("Run the live snake draft. Generate a unique code for each team owner, share it with them, then start the draft when everyone is ready."));
+  dsBody.appendChild(note("Run the live snake draft. Make sure all owners have accepted their invites and are signed in, then start the draft below. Draft order is randomized automatically — no team has a structural advantage."));
 
-  // Step 1: Codes
-  const codesCard = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"10px"}});
-  codesCard.appendChild(h("div",{style:{color:C.text,fontWeight:"700",fontSize:"13px",marginBottom:"4px"}},"Step 1 — Generate Team Codes"));
-  codesCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"10px"}},"Each owner gets a unique 6-character code. They enter it in the Draft tab to claim their team and unlock their pick UI."));
-  if(S.draftCodes){
-    const grid=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px",marginBottom:"10px"}});
-    S.teams.forEach(t=>{
-      const code=S.draftCodes[t.id]||"—";
-      const cell=h("div",{style:{background:C.card,borderRadius:"6px",padding:"8px 10px",border:`1px solid ${C.border}`}});
-      cell.appendChild(h("div",{style:{color:C.muted,fontSize:"10px",marginBottom:"2px"}},t.name));
-      cell.appendChild(h("div",{style:{color:C.accent,fontFamily:"'Bebas Neue',sans-serif",fontSize:"18px",letterSpacing:"0.1em"}},code));
-      grid.appendChild(cell);
-    });
-    codesCard.appendChild(grid);
-    codesCard.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginBottom:"8px"}},"Share each code with the corresponding owner via text or group chat."));
-  } else {
-    codesCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"8px"}},"No codes yet — click below to generate."));
-  }
-  if(S.draftGenStatus) codesCard.appendChild(h("div",{style:{color:C.green,fontSize:"12px",marginBottom:"6px",fontWeight:"600"}},S.draftGenStatus));
-  codesCard.appendChild(h("button",{
-    style:{padding:"8px 16px",borderRadius:"7px",cursor:"pointer",fontWeight:"700",fontSize:"12px",background:`${C.accent}18`,border:`1px solid ${C.accent}55`,color:C.accent},
-    onClick:generateDraftCodes
-  },S.draftCodes?"🔄 Regenerate Codes":"🎲 Generate Team Codes"));
-  dsBody.appendChild(codesCard);
-
-  // Step 2: Start draft
+  // Start draft (Step 1 now — codes removed, email login replaces them)
   const startCard = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"10px"}});
-  startCard.appendChild(h("div",{style:{color:C.text,fontWeight:"700",fontSize:"13px",marginBottom:"4px"}},"Step 2 — Start the Draft"));
+  startCard.appendChild(h("div",{style:{color:C.text,fontWeight:"700",fontSize:"13px",marginBottom:"4px"}},"Step 1 — Start the Draft"));
   const currentDraftStatus = S.draftState?.status;
   if(currentDraftStatus === "active") {
     startCard.appendChild(h("div",{style:{color:C.green,fontWeight:"700",fontSize:"13px",marginBottom:"4px"}},"✓ Draft is live!"));
@@ -2800,7 +2776,7 @@ function buildCommish() {
     startCard.appendChild(h("div",{style:{color:C.accent,fontWeight:"700",fontSize:"13px",marginBottom:"4px"}},"✓ Draft complete — rosters have been saved."));
     startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px"}},"Head to Standings to see the final rosters."));
   } else {
-    startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"10px"}},"Once everyone has their code and is ready, set the format, number of rounds, and start the draft. Each round = one pick per team."));
+    startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"10px"}},"Once everyone has signed in and claimed their team, set the format and number of rounds, then start the draft. Draft order is randomized automatically."));
 
     // Draft format toggle
     startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"6px"}},"Draft Format"));
@@ -2964,8 +2940,8 @@ async function generateDraftCodes() {
 // Initialize a new draft in Firebase
 async function initDraft(numRounds, format="snake") {
   if(!S.teams.length) { alert("No teams loaded yet."); return; }
-  if(!S.draftCodes) { alert("Generate team codes first."); return; }
-  const teamIds = S.teams.map(t=>t.id);
+  // Randomize team order — no structural first-pick advantage
+  const teamIds = [...S.teams.map(t=>t.id)].sort(() => Math.random() - 0.5);
   const order = [];
   for(let r=0; r<numRounds; r++) {
     // Snake: odd rounds reverse; Linear: always same direction
@@ -3643,7 +3619,7 @@ function buildAuthScreen() {
         try {
           const cred = await createUserWithEmailAndPassword(auth, email, pass);
           const leagueId = await createLeague(name, S.setupTeamCount||10, email, cred.user.uid);
-          set({authLoading:false, leagueId, isCommish:true, commishUnlocked:true});
+          set({authLoading:false, leagueId, isCommish:true, commishUnlocked:true, onboardingStep:1});
           // onAuthStateChanged + onSnapshot handle the rest
         } catch(e) {
           const msg = e.code === "auth/email-already-in-use"
@@ -3700,7 +3676,8 @@ function buildLeagueSetup() {
   card.appendChild(nameInp);
 
   // Number of teams
-  card.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"Number of Teams"));
+  card.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"4px"}},"Number of Teams"));
+  card.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginBottom:"8px"}},"You can adjust this later in the Commissioner Panel if needed."));
   const teamCountWrap = h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"8px",marginBottom:"20px"}});
   [2,4,6,8,10,12,14,16].forEach(n => {
     const btn = h("button",{
@@ -3756,6 +3733,82 @@ function buildLeagueSetup() {
   return wrap;
 }
 
+
+// ── Commissioner Onboarding Modal ─────────────────────────────────────────────
+function buildOnboarding() {
+  const steps = [
+    {
+      icon:"🎉",
+      title:"Welcome, Commissioner!",
+      body:`Your league is created. Here's your unique league URL — share it with owners when you're ready to invite them. You can always find it in Manage League → League Settings.`,
+      extra: S.leagueId ? `${window.location.origin}${window.location.pathname}?league=${S.leagueId}` : null,
+    },
+    {
+      icon:"✉️",
+      title:"Invite Your Owners",
+      body:"Go to Manage League → Invite Owners. Assign each team an email address, then hit the Invite button to send each owner a pre-filled email with your league link. When they sign up with that email, they're automatically assigned their team — no codes needed.",
+    },
+    {
+      icon:"🎯",
+      title:"Draft Day",
+      body:"When everyone's signed in and ready, go to Manage League → Draft Management. Pick your format (Snake or Linear), set the number of rounds, and start the live draft. Draft order is randomized automatically so no team has a first-pick advantage every year.",
+    },
+    {
+      icon:"📊",
+      title:"During the Season",
+      body:"Stats refresh automatically whenever someone opens the app. Each team gets one transaction for the season — a player drop and add — processed through Manage League → Roster & Transactions. The dropped player's stats are frozen; the new player's stats count from the date they were added.",
+    },
+    {
+      icon:"✅",
+      title:"You're All Set",
+      body:"That's the full picture. You can revisit these steps anytime via the ? button in the header. Good luck this season!",
+    },
+  ];
+
+  const step = Math.max(0, Math.min(S.onboardingStep - 1, steps.length - 1));
+  const current = steps[step];
+  const isLast = step === steps.length - 1;
+
+  const overlay = h("div",{style:{position:"fixed",inset:"0",background:"rgba(13,35,64,0.75)",backdropFilter:"blur(3px)",display:"flex",alignItems:"center",justifyContent:"center",padding:"20px",zIndex:"2000"}});
+  const modal = h("div",{style:{background:C.card,border:`1px solid ${C.accent}44`,borderRadius:"16px",padding:"28px 24px",width:"100%",maxWidth:"400px",boxShadow:`0 20px 60px rgba(13,35,64,0.3)`,animation:"fadeIn 0.2s ease"}});
+
+  // Progress dots
+  const dots = h("div",{style:{display:"flex",gap:"6px",justifyContent:"center",marginBottom:"20px"}});
+  steps.forEach((_,i) => dots.appendChild(h("div",{style:{width:"6px",height:"6px",borderRadius:"50%",background:i===step?C.accent:C.border,transition:"background 0.2s"}})));
+  modal.appendChild(dots);
+
+  modal.appendChild(h("div",{style:{fontSize:"32px",textAlign:"center",marginBottom:"12px"}},current.icon));
+  modal.appendChild(h("div",{style:{color:C.text,fontWeight:"800",fontSize:"18px",textAlign:"center",marginBottom:"10px"}},current.title));
+  modal.appendChild(h("div",{style:{color:C.muted,fontSize:"13px",lineHeight:"1.6",textAlign:"center",marginBottom:current.extra?"12px":"24px"}},current.body));
+
+  if(current.extra) {
+    const urlBox = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"8px 12px",border:`1px solid ${C.border}`,marginBottom:"24px",display:"flex",gap:"8px",alignItems:"center"}});
+    urlBox.appendChild(h("div",{style:{color:C.text,fontSize:"11px",flex:"1",wordBreak:"break-all",fontFamily:"monospace"}},current.extra));
+    const cb = h("button",{style:{padding:"4px 10px",borderRadius:"5px",cursor:"pointer",fontWeight:"700",fontSize:"10px",background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,whiteSpace:"nowrap"},
+      onClick:()=>{navigator.clipboard?.writeText(current.extra);cb.textContent="✓";setTimeout(()=>{cb.textContent="Copy";},2000);}
+    },"Copy");
+    urlBox.appendChild(cb);
+    modal.appendChild(urlBox);
+  }
+
+  // Nav buttons
+  const btnRow = h("div",{style:{display:"flex",gap:"10px"}});
+  if(step > 0) {
+    btnRow.appendChild(h("button",{
+      style:{flex:"1",padding:"11px",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"14px",background:"transparent",border:`1px solid ${C.border}`,color:C.muted},
+      onClick:()=>set({onboardingStep:S.onboardingStep-1})
+    },"← Back"));
+  }
+  btnRow.appendChild(h("button",{
+    style:{flex:"2",padding:"11px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"14px",background:C.accent,border:"none",color:"#fff"},
+    onClick:()=>{ isLast ? set({onboardingStep:-1}) : set({onboardingStep:S.onboardingStep+1}); }
+  }, isLast ? "Get Started ✓" : "Next →"));
+  modal.appendChild(btnRow);
+
+  overlay.appendChild(modal);
+  return overlay;
+}
+
 function render() {
   const app = document.getElementById("app");
   app.innerHTML="";
@@ -3771,9 +3824,17 @@ function render() {
     return;
   }
 
-  // Show league setup if signed in, has league, but league not configured
-  if(!S.leagueSetup && S.teams.length === 0) {
+  // Show league setup only if signed in but league doc not yet saved
+  // (shouldn't happen after Option A — createLeague handles this during signup)
+  if(!S.leagueSetup && S.teams.length === 0 && !S.currentUser) {
     app.appendChild(buildLeagueSetup());
+    return;
+  }
+  // Signed in but league not loaded yet — show loading state
+  if(S.currentUser && !S.leagueSetup && S.teams.length === 0) {
+    app.appendChild(h("div",{style:{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center"}},
+      h("div",{style:{color:C.muted,fontSize:"14px"}},"Loading your league…")
+    ));
     return;
   }
 
@@ -3806,6 +3867,10 @@ function render() {
       style:{padding:"7px 14px",borderRadius:"6px",cursor:"pointer",background:C.accent,border:"none",color:"#ffffff",fontWeight:"700",fontSize:"12px"},
       onClick:()=>set({showCommish:true,cpLocal:JSON.parse(JSON.stringify(S.teams)),cpActive:0})
     },"⚙️ Manage"));
+    btnRow.appendChild(h("button",{
+      style:{padding:"7px 10px",borderRadius:"6px",cursor:"pointer",background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:"13px"},
+      onClick:()=>set({onboardingStep:1})
+    },"?"));
   }
   btnRow.appendChild(h("button",{
     style:{padding:"7px 12px",borderRadius:"6px",cursor:"pointer",background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:"12px"},
@@ -3869,6 +3934,7 @@ function render() {
   if(S.spotlightPlayer) app.appendChild(buildSpotlightModal());
   if(S.projectedTeam) app.appendChild(buildProjectedTeamModal());
   if(S.showCommish&&S.cpLocal) app.appendChild(buildCommish());
+  if(S.onboardingStep > 0 && S.isCommish) app.appendChild(buildOnboarding());
 }
 
 function handleLogin(val) {
