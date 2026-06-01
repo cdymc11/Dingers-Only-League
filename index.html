@@ -4069,8 +4069,10 @@ onAuthStateChanged(auth, async (user) => {
 
   // Now start the Firebase listener
   onSnapshot(leagueRef, snap => {
+    alert("onSnapshot fired. exists=" + snap.exists() + " leagueRef path=" + leagueRef?.path);
     if(snap.exists()) {
       const data = snap.data();
+      alert("teams=" + JSON.stringify(data.teams?.length) + " leagueName=" + data.leagueName);
       if(data.teams?.length >= 0 && data.teams !== undefined) {
         // Dynamic teams — load directly from Firebase, apply transactions on top
         const merged = data.teams.map(t => ({...t, players: (t.players||[]).map(p => ({...p}))}));
