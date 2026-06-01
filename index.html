@@ -3984,6 +3984,7 @@ function handleLogin(val) {
 // Load transactions first, THEN start listening to Firebase
 // This ensures transactions are available when onSnapshot fires
 // ── Auth state listener — drives the whole app startup ───────────────────────
+let _authInitializing = false; // prevents double-initialization
 onAuthStateChanged(auth, async (user) => {
   if(!user) {
     // Not signed in — show auth screen
@@ -3996,6 +3997,8 @@ onAuthStateChanged(auth, async (user) => {
   }
 
   // Signed in — figure out which league
+  if(_authInitializing) return; // prevent concurrent initialization
+  _authInitializing = true;
   let leagueId = S.leagueId || getLeagueIdFromUrl();
 
   if(!leagueId) {
@@ -4020,9 +4023,10 @@ onAuthStateChanged(auth, async (user) => {
 
       if(found.length === 1) {
         leagueId = found[0].id;
+        S.leagueId = leagueId; // Set immediately to prevent race condition
         initFirebaseRefs(leagueId);
         setLeagueIdInUrl(leagueId);
-        // Don't call set() here — fall through to full league load below
+        // Fall through to full league load below
       } else if(found.length > 1) {
         set({currentUser:user, authScreen:"pick_league", authLoading:false,
              foundLeagues:found});
@@ -4040,26 +4044,20 @@ onAuthStateChanged(auth, async (user) => {
     }
   }
 
-  alert("A: initFirebaseRefs leagueId=" + leagueId);
   initFirebaseRefs(leagueId);
   setLeagueIdInUrl(leagueId);
-  alert("B: subscribeDraft");
   subscribeDraft();
-  alert("C: loadTransactions");
   await loadTransactions();
-  alert("D: getDoc leagueRef=" + (leagueRef ? leagueRef.path : "NULL"));
   let snap0 = null;
   try { snap0 = await getDoc(leagueRef); } catch(e) { alert("getDoc error: " + e.message); }
-  alert("E: snap0 exists=" + snap0?.exists());
   const isCommish = snap0?.exists() && (
     snap0.data().ownerUID === user.uid ||
     snap0.data().ownerEmail === user.email
   );
-  alert("F: isCommish=" + isCommish + " setting state");
   set({currentUser:user, leagueId, isCommish,
        commishUnlocked: isCommish,
        authError:""});
-  alert("G: about to onSnapshot");
+  _authInitializing = false;
   onSnapshot(leagueRef, snap => {
     if(snap.exists()) {
       const data = snap.data();
