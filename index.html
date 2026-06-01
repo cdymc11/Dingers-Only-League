@@ -4053,8 +4053,11 @@ onAuthStateChanged(auth, async (user) => {
       }
     } catch(e) {
       console.error("League lookup failed:", e);
+      // Show full error including any index creation URL
+      const errMsg = e.message || String(e);
+      const codeMsg = e.code ? `[${e.code}] ` : "";
       set({currentUser:user, authScreen:"pick_league", authLoading:false,
-           foundLeagues:[], authError:`Error: ${e.message}`});
+           foundLeagues:[], authError:`${codeMsg}${errMsg}`});
       return;
     }
   }
