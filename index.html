@@ -4009,6 +4009,13 @@ function startLeagueListener(leagueId) {
         data.ownerUID === S.currentUser?.uid ||
         data.ownerEmail?.toLowerCase() === S.currentUser?.email?.toLowerCase()
       );
+      console.log("Commish check:", {
+        dataOwnerUID: data.ownerUID,
+        dataOwnerEmail: data.ownerEmail,
+        currentUID: S.currentUser?.uid,
+        currentEmail: S.currentUser?.email,
+        isCommish
+      });
       const merged = (data.teams||[]).map(t => ({...t, players:(t.players||[]).map(p=>({...p}))}));
       const withTx = applyTransactions(merged, S.transactions);
       const newDraftState = data.draftState || S.draftState || null;
