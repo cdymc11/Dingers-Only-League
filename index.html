@@ -202,17 +202,11 @@ async function checkIsCommish(user, leagueId) {
 
 // ── Sign out ──────────────────────────────────────────────────────────────────
 async function doSignOut() {
-  // Reset leagueId BEFORE signOut so onAuthStateChanged sees null
-  S.leagueId = null;
-  leagueRef = null;
-  historyCol = null;
-  transactionsCol = null;
   localStorage.removeItem("draftTeamId");
-  const url = new URL(window.location.href);
-  url.searchParams.delete("league");
-  window.history.replaceState({}, "", url.toString());
   await signOut(auth);
-  // onAuthStateChanged will fire and handle the rest
+  // Full page reload — cleanest way to reset all module-level state
+  // and ensures urlLeagueId is re-read fresh on next sign-in
+  window.location.href = window.location.pathname;
 }
 
 // ── Create a new league ───────────────────────────────────────────────────────
