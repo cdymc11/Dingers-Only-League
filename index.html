@@ -4001,12 +4001,13 @@ onAuthStateChanged(auth, async (user) => {
   if(!leagueId) {
     // No league in URL — search Firebase for leagues this user belongs to
     set({currentUser:user, authScreen:"finding_league", authError:"", authLoading:true});
+    alert("LOOKUP RUNNING — user: " + user.email);
     try {
       // Fetch all leagues and filter locally — avoids needing Firestore indexes
       const leaguesCol = collection(db, "leagues");
-      set({authError:"Fetching leagues collection..."});
+      alert("Calling getDocs...");
       const allSnap = await getDocs(leaguesCol);
-      set({authError:`Got ${allSnap.size} league docs`});
+      alert("getDocs returned: " + allSnap.size + " docs");
       const found = [];
       allSnap.forEach(d => {
         const data = d.data();
