@@ -202,14 +202,17 @@ async function checkIsCommish(user, leagueId) {
 
 // ── Sign out ──────────────────────────────────────────────────────────────────
 async function doSignOut() {
-  await signOut(auth);
+  // Reset leagueId BEFORE signOut so onAuthStateChanged sees null
+  S.leagueId = null;
+  leagueRef = null;
+  historyCol = null;
+  transactionsCol = null;
   localStorage.removeItem("draftTeamId");
   const url = new URL(window.location.href);
   url.searchParams.delete("league");
   window.history.replaceState({}, "", url.toString());
-  set({currentUser:null, leagueId:null, leagueSetup:false, teams:[],
-       isCommish:false, commishUnlocked:false, myTeamId:null, draftMyTeamId:null,
-       authScreen:"landing"});
+  await signOut(auth);
+  // onAuthStateChanged will fire and handle the rest
 }
 
 // ── Create a new league ───────────────────────────────────────────────────────
@@ -3991,8 +3994,9 @@ onAuthStateChanged(auth, async (user) => {
   if(!user) {
     // Not signed in — show auth screen
     const leagueId = getLeagueIdFromUrl();
+    S.leagueId = leagueId || null; // ensure clean state
     set({currentUser:null, leagueSetup:false, teams:[], isCommish:false,
-         commishUnlocked:false, leagueId,
+         commishUnlocked:false, leagueId: leagueId || null,
          authScreen: leagueId ? "signin" : "landing"});
     return;
   }
