@@ -4040,39 +4040,26 @@ onAuthStateChanged(auth, async (user) => {
     }
   }
 
-  // Init refs and load the league
+  alert("A: initFirebaseRefs leagueId=" + leagueId);
   initFirebaseRefs(leagueId);
   setLeagueIdInUrl(leagueId);
-
-  // Hydrate persistent team identity from localStorage
-  const saved = localStorage.getItem("draftTeamId");
-  if(saved !== null) {
-    const tid = parseInt(saved);
-    if(!isNaN(tid)) S.myTeamId = tid;
-  }
-
+  alert("B: subscribeDraft");
   subscribeDraft();
-
+  alert("C: loadTransactions");
   await loadTransactions();
-
-  // Determine if commish
+  alert("D: getDoc leagueRef=" + (leagueRef ? leagueRef.path : "NULL"));
   let snap0 = null;
-  try { snap0 = await getDoc(leagueRef); } catch(e) {}
+  try { snap0 = await getDoc(leagueRef); } catch(e) { alert("getDoc error: " + e.message); }
+  alert("E: snap0 exists=" + snap0?.exists());
   const isCommish = snap0?.exists() && (
     snap0.data().ownerUID === user.uid ||
     snap0.data().ownerEmail === user.email
   );
-
+  alert("F: isCommish=" + isCommish + " setting state");
   set({currentUser:user, leagueId, isCommish,
-       commishUnlocked: isCommish, // commish auto-unlocked
+       commishUnlocked: isCommish,
        authError:""});
-
-  // Now start the Firebase listener
-  alert("About to call onSnapshot. leagueRef=" + (leagueRef ? leagueRef.path : "NULL") + " leagueId=" + leagueId);
-  if(!leagueRef) {
-    alert("leagueRef is null — cannot start listener");
-    return;
-  }
+  alert("G: about to onSnapshot");
   onSnapshot(leagueRef, snap => {
     if(snap.exists()) {
       const data = snap.data();
