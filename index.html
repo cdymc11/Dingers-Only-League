@@ -91,7 +91,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection, getDocs, orderBy, query } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, orderBy, query, where } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 // ── Firebase ──────────────────────────────────────────────────────────────────
@@ -192,9 +192,11 @@ function generateLeagueId() {
 async function checkIsCommish(user, leagueId) {
   if(!user || !leagueId) return false;
   try {
-    const { getDoc: gd } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    const snap = await gd(doc(db, "leagues", leagueId));
-    return snap.exists() && snap.data().ownerUID === user.uid;
+    const snap = await getDoc(doc(db, "leagues", leagueId));
+    return snap.exists() && (
+      snap.data().ownerUID === user.uid ||
+      snap.data().ownerEmail === user.email
+    );
   } catch(e) { return false; }
 }
 
@@ -4002,29 +4004,24 @@ onAuthStateChanged(auth, async (user) => {
     // No league in URL — search Firebase for leagues this user belongs to
     set({currentUser:user, authScreen:"finding_league", authError:"", authLoading:true});
     try {
-      // Check leagues where user is owner
-      const { getDocs: gds, query: q2, where, collection: col2 } =
-        await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-      const leaguesCol = col2(db, "leagues");
+      const leaguesCol = collection(db, "leagues");
       // Query by ownerUID first
-      const ownerSnap = await gds(q2(leaguesCol, where("ownerUID","==",user.uid)));
+      const ownerSnap = await getDocs(query(leaguesCol, where("ownerUID","==",user.uid)));
       const found = [];
       ownerSnap.forEach(d => found.push({id:d.id, ...d.data()}));
       // Also check ownerEmail fallback for leagues created before Option A
       if(!found.length) {
-        const emailOwnerSnap = await gds(q2(leaguesCol, where("ownerEmail","==",user.email)));
+        const emailOwnerSnap = await getDocs(query(leaguesCol, where("ownerEmail","==",user.email)));
         emailOwnerSnap.forEach(d => {
           if(!found.find(f=>f.id===d.id)) found.push({id:d.id, ...d.data()});
         });
       }
       // Also check by email in teams array (for non-commish members)
       if(!found.length) {
-        // Broader search — get all leagues and check locally
-        // (For small scale this is fine; optimize with index later)
-        const allSnap = await gds(q2(leaguesCol));
+        const allSnap = await getDocs(query(leaguesCol));
         allSnap.forEach(d => {
           const data = d.data();
-          const hasEmail = (data.teams||[]).some(t => 
+          const hasEmail = (data.teams||[]).some(t =>
             t.email?.toLowerCase() === user.email?.toLowerCase()
           );
           if(hasEmail) found.push({id:d.id, ...data});
@@ -4072,16 +4069,11 @@ onAuthStateChanged(auth, async (user) => {
   await loadTransactions();
 
   // Determine if commish
-  const snap0 = await (async () => {
-    try {
-      const { getDoc: gd } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-      return await gd(leagueRef);
-    } catch(e) { return null; }
-  })();
+  let snap0 = null;
+  try { snap0 = await getDoc(leagueRef); } catch(e) {}
   const isCommish = snap0?.exists() && (
     snap0.data().ownerUID === user.uid ||
-    // Fallback for old leagues created before Option A
-    (snap0.data().ownerEmail && snap0.data().ownerEmail === user.email)
+    snap0.data().ownerEmail === user.email
   );
 
   set({currentUser:user, leagueId, isCommish,
