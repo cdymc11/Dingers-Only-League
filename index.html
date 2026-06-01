@@ -92,6 +92,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection, getDocs, orderBy, query } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 // ── Firebase ──────────────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -104,10 +105,30 @@ const firebaseConfig = {
 };
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
-const leagueRef = doc(db, "league", "data");
-const historyCol = collection(db, "history");
-const transactionsCol = collection(db, "transactions");
-// draft state lives inside league/data as draftState + draftCodes fields
+const auth = getAuth(firebaseApp);
+
+// ── Read league ID from URL (?league=XK9M4P) ─────────────────────────────────
+function getLeagueIdFromUrl() {
+  return new URLSearchParams(window.location.search).get("league");
+}
+function setLeagueIdInUrl(id) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("league", id);
+  window.history.replaceState({}, "", url.toString());
+}
+
+// ── Dynamic Firebase refs — set once leagueId is known ───────────────────────
+let leagueRef = null;
+let historyCol = null;
+let transactionsCol = null;
+function initFirebaseRefs(leagueId) {
+  leagueRef = doc(db, "leagues", leagueId);
+  historyCol = collection(db, "leagues", leagueId, "history");
+  transactionsCol = collection(db, "leagues", leagueId, "transactions");
+}
+// Initialise with URL param if present (handles page reload)
+const urlLeagueId = getLeagueIdFromUrl();
+if(urlLeagueId) initFirebaseRefs(urlLeagueId);
 
 // Save a weekly snapshot — called automatically on Mondays & manually by commish
 async function saveHistorySnapshot(label) {
@@ -159,7 +180,65 @@ function maybeAutoSnapshot() {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const PASS = "beta";
+const PASS = "beta"; // legacy fallback
+
+// ── Generate unique league ID ─────────────────────────────────────────────────
+function generateLeagueId() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({length:6}, () => chars[Math.floor(Math.random()*chars.length)]).join("");
+}
+
+// ── Check if current user is commish of current league ───────────────────────
+async function checkIsCommish(user, leagueId) {
+  if(!user || !leagueId) return false;
+  try {
+    const { getDoc: gd } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const snap = await gd(doc(db, "leagues", leagueId));
+    return snap.exists() && snap.data().ownerUID === user.uid;
+  } catch(e) { return false; }
+}
+
+// ── Sign out ──────────────────────────────────────────────────────────────────
+async function doSignOut() {
+  await signOut(auth);
+  localStorage.removeItem("draftTeamId");
+  const url = new URL(window.location.href);
+  url.searchParams.delete("league");
+  window.history.replaceState({}, "", url.toString());
+  set({currentUser:null, leagueId:null, leagueSetup:false, teams:[],
+       isCommish:false, commishUnlocked:false, myTeamId:null, draftMyTeamId:null,
+       authScreen:"landing"});
+}
+
+// ── Create a new league ───────────────────────────────────────────────────────
+async function createLeague(name, teamCount, userEmail, uid) {
+  const leagueId = generateLeagueId();
+  initFirebaseRefs(leagueId);
+  setLeagueIdInUrl(leagueId);
+  const randomNames = getRandomTeamNames(teamCount);
+  const teams = Array.from({length: teamCount}, (_, i) => ({
+    id: i,
+    name: randomNames[i],
+    owner: i === 0 ? userEmail : "",
+    email: i === 0 ? userEmail : "",
+    hasUsedTransaction: false,
+    players: [],
+  }));
+  await setDoc(leagueRef, {
+    leagueName: name.toUpperCase(),
+    ownerUID: uid,
+    ownerEmail: userEmail,
+    createdAt: new Date().toISOString(),
+    lastUpdated: new Date().toISOString(),
+    teams,
+  });
+  return leagueId;
+}
+
+// ── Find team by email in league ──────────────────────────────────────────────
+function findTeamByEmail(teams, email) {
+  return teams.find(t => t.email?.toLowerCase() === email?.toLowerCase()) || null;
+}
 const C = {
   bg:"#ddeeff", surface:"#c8e0f5", card:"#ffffff", border:"#a8c8e8",
   accent:"#1a4a8a", red:"#c0392b", green:"#1a7a4a", text:"#0d2340", muted:"#4a6a8a"
@@ -297,6 +376,11 @@ let S = {
   teams: [], // loaded from Firebase
   leagueName: "DINGERS ONLY", // editable
   leagueSetup: false, // true when league has been configured
+  leagueId: urlLeagueId || null,    // current league ID
+  currentUser: null,     // Firebase Auth user object
+  authScreen: urlLeagueId ? "signin" : "landing", // landing|signin|signup|forgot
+  authEmail: "", authPassword: "", authError: "", authLoading: false,
+  isCommish: false,      // true if currentUser is league owner
   setupStep: "check", // "check" | "new" | "join"
   setupTeamCount: 10,
   setupLeagueName: "",
@@ -311,7 +395,7 @@ let S = {
   historyWeeks: null, historyLoading: false, historyWeekIdx: 0,
   transactions: [], // [{id, teamId, droppedPlayer, droppedAt, droppedStat, addedPlayer, addedAt, hrBaseline, hbpBaseline, type}]
   hrCelebration: null, // {name, count, type}
-  commishInput: "", commishUnlocked: false, showCommish: false, pwError: false,
+  commishInput: "", commishUnlocked: false, showCommish: false, pwError: false, // legacy — replaced by Firebase Auth but kept for transition
   refreshing: false, refreshStatus: "",
   // commissioner panel
   cpActive: 0, cpLocal: null, cpRefreshing: false, cpStatus: "", cpReplHR: "", cpReplHBP: "",
@@ -331,7 +415,7 @@ let S = {
   backfillRunning: false, backfillStatus: "", backfillDone: false,
   setupDraftRounds: 8,
   draftFormat: "snake",   // "snake" | "linear"
-  commishSections: {league:false, roster:false, draft:false}, // open/closed
+  commishSections: {league:false, roster:false, invites:false, draft:false}, // open/closed
   // draft
   draftState: null,          // live draft state from Firebase
   draftCodes: null,          // { teamId: code } map
@@ -349,21 +433,7 @@ let S = {
   draftGenStatus: "",        // status message for code gen
 };
 
-function set(partial) {
-  S = {...S, ...partial};
-  try {
-    render();
-  } catch(err) {
-    console.error("render() crashed:", err);
-    const app = document.getElementById("app");
-    if(app) {
-      const d = document.createElement("div");
-      d.style.cssText = "position:fixed;top:0;left:0;right:0;background:#c0392b;color:#fff;padding:12px 16px;font-size:12px;z-index:99999;white-space:pre-wrap;font-family:monospace;";
-      d.textContent = "JS Error: " + err.message + "\n" + (err.stack||"").split("\n").slice(0,4).join("\n");
-      document.body.appendChild(d);
-    }
-  }
-}
+function set(partial) { S = {...S, ...partial}; render(); }
 
 // Correct known misspellings from old Firebase data
 const NAME_CORRECTIONS = {
@@ -453,6 +523,7 @@ function applyTransactions(teams, transactions) {
 // onSnapshot moved inside loadTransactions().then() to ensure proper load order
 
 async function saveToFirebase(teams) {
+  if(!leagueRef) { console.warn("saveToFirebase called before leagueRef initialized"); return; }
   const now = new Date().toISOString();
   // Save teams as-is — strip transaction-added players (those live in transactions/ collection)
   // A transaction-added player has addedAt set; original roster players do not
@@ -2502,11 +2573,20 @@ function buildCommish() {
   }
 
   // Name / owner fields
-  const fields = h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px",marginBottom:"16px"}});
+  const fields = h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px",marginBottom:"10px"}});
   const nf=h("div"); nf.appendChild(h("label",{style:{color:C.muted,fontSize:"11px",textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:"4px"}},"Team Name")); nf.appendChild(inp(team.name,v=>{local[S.cpActive].name=v;set({cpLocal:local})}));
-  const of=h("div"); of.appendChild(h("label",{style:{color:C.muted,fontSize:"11px",textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:"4px"}},"Owner")); of.appendChild(inp(team.owner,v=>{local[S.cpActive].owner=v;set({cpLocal:local})},"Owner name"));
+  const of=h("div"); of.appendChild(h("label",{style:{color:C.muted,fontSize:"11px",textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:"4px"}},"Owner")); of.appendChild(inp(team.owner||"",v=>{local[S.cpActive].owner=v;set({cpLocal:local})},"Display name"));
   fields.append(nf,of);
   rsBody.appendChild(fields);
+  // Email field — used for auto-login and invites
+  const emailWrap = h("div",{style:{marginBottom:"16px"}});
+  emailWrap.appendChild(h("label",{style:{color:C.muted,fontSize:"11px",textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:"4px"}},"Owner Email"));
+  const emailInpField = h("input",{type:"email",placeholder:"owner@email.com",style:{width:"100%",padding:"7px 10px",borderRadius:"6px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"13px",boxSizing:"border-box",outline:"none"}});
+  emailInpField.value = team.email||"";
+  emailInpField.addEventListener("blur", e => { local[S.cpActive].email=e.target.value.trim().toLowerCase(); set({cpLocal:local}); });
+  emailWrap.appendChild(emailInpField);
+  emailWrap.appendChild(h("div",{style:{color:C.muted,fontSize:"10px",marginTop:"3px"}},"When this owner signs in with this email, they'll be auto-assigned to this team."));
+  rsBody.appendChild(emailWrap);
 
   // ── HR Players ────────────────────────────────────────────────────────────
   const hrSub = h("div",{style:{marginBottom:"14px"}});
@@ -2641,6 +2721,46 @@ function buildCommish() {
   // ════════════════════════════════════════════════════════════════════════
   // SECTION 4 — DRAFT MANAGEMENT
   // ════════════════════════════════════════════════════════════════════════
+  // ── Invite Section ─────────────────────────────────────────────────────────
+  const inviteSection = section("Invite Owners","✉️","invites"); const invBody = inviteSection._body;
+  invBody.appendChild(note("Assign an email address to each team above, then send each owner their invite link. When they click it and sign in, they're auto-assigned to their team."));
+
+  const leagueUrl = `${window.location.origin}${window.location.pathname}?league=${S.leagueId}`;
+  const urlBox = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"10px 12px",border:`1px solid ${C.border}`,marginBottom:"14px",display:"flex",gap:"8px",alignItems:"center"}});
+  urlBox.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",flex:"1",wordBreak:"break-all"}},leagueUrl));
+  urlBox.appendChild(h("button",{
+    style:{padding:"5px 12px",borderRadius:"6px",cursor:"pointer",fontWeight:"700",fontSize:"11px",background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,whiteSpace:"nowrap"},
+    onClick:()=>{ navigator.clipboard?.writeText(leagueUrl); }
+  },"Copy"));
+  invBody.appendChild(urlBox);
+
+  // Per-team invite buttons
+  const teamsWithEmail = local.filter(t => t.email && t.id !== 0); // skip commish (team 0)
+  if(!teamsWithEmail.length) {
+    invBody.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"8px"}},"Add email addresses to your teams above to enable invites."));
+  } else {
+    teamsWithEmail.forEach(t => {
+      const subject = encodeURIComponent(`You're invited to ${S.leagueName}`);
+      const body = encodeURIComponent(
+        `Hey ${t.owner||t.name}!\n\n` +
+        `You've been invited to join ${S.leagueName} on Dingers Only.\n\n` +
+        `Click the link below to sign up and claim your team (${t.name}):\n\n` +
+        `${leagueUrl}\n\n` +
+        `Create an account using this email address (${t.email}) so you're auto-assigned to your team.\n\n` +
+        `See you on draft day!`
+      );
+      const mailtoLink = `mailto:${t.email}?subject=${subject}&body=${body}`;
+      const row = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}22`}});
+      row.appendChild(h("div",{},
+        h("div",{style:{color:C.text,fontSize:"13px",fontWeight:"600"}},t.name),
+        h("div",{style:{color:C.muted,fontSize:"11px"}},t.email)
+      ));
+      row.appendChild(h("a",{href:mailtoLink,style:{padding:"5px 14px",borderRadius:"6px",cursor:"pointer",fontWeight:"700",fontSize:"12px",background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,textDecoration:"none",whiteSpace:"nowrap"}},"✉️ Invite"));
+      invBody.appendChild(row);
+    });
+  }
+  panel.appendChild(inviteSection);
+
   const draftSection = section("Draft Management","🎯","draft"); const dsBody = draftSection._body;
   dsBody.appendChild(note("Run the live snake draft. Generate a unique code for each team owner, share it with them, then start the draft when everyone is ready."));
 
@@ -2999,8 +3119,8 @@ function buildDraft() {
 
     // Code entry for owners
     const codeCard = h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"12px",padding:"20px",marginBottom:"16px"}});
-    codeCard.appendChild(h("div",{style:{color:C.text,fontWeight:"700",fontSize:"15px",marginBottom:"4px"}},"Already have a code?"));
-    codeCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"14px"}},"Enter your team code from the commissioner to claim your seat."));
+    codeCard.appendChild(h("div",{style:{color:C.text,fontWeight:"700",fontSize:"15px",marginBottom:"4px"}},"Claim Your Team"));
+    codeCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"14px"}},"If you signed in with your assigned email, your team is auto-claimed. Otherwise enter your team code below."));
     const codeRow = h("div",{style:{display:"flex",gap:"8px"}});
     const codeInp = h("input",{style:{flex:"1",padding:"10px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",textTransform:"uppercase",outline:"none",letterSpacing:"0.12em"}});
     codeInp.placeholder = "e.g. XK9M4P";
@@ -3414,6 +3534,154 @@ function buildDraftRecap(ds, wrap) {
 }
 
 
+
+// ── Auth Screen ───────────────────────────────────────────────────────────────
+
+function buildPickLeague() {
+  const wrap = h("div",{style:{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px"}});
+  wrap.appendChild(h("div",{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:"40px",color:C.accent,letterSpacing:"0.05em",marginBottom:"24px",textAlign:"center"}},"⚾ DINGERS ONLY"));
+  const card = h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"16px",padding:"28px 24px",width:"100%",maxWidth:"400px"}});
+  card.appendChild(h("div",{style:{color:C.text,fontWeight:"800",fontSize:"18px",marginBottom:"6px"}},"No League Found"));
+  card.appendChild(h("div",{style:{color:C.muted,fontSize:"13px",lineHeight:"1.5",marginBottom:"20px"}},"You're signed in but there's no league in your URL. Use the link your commissioner sent you, or create a new league."));
+  if(S.authError) card.appendChild(h("div",{style:{color:C.red,fontSize:"12px",marginBottom:"12px",padding:"8px 12px",background:C.red+"11",borderRadius:"6px"}},S.authError));
+  card.appendChild(h("button",{
+    style:{width:"100%",padding:"13px",borderRadius:"10px",cursor:"pointer",fontWeight:"800",fontSize:"15px",background:C.accent,border:"none",color:"#fff",marginBottom:"10px"},
+    onClick:()=>set({authScreen:"signup",authError:""})
+  },"Create New League"));
+  card.appendChild(h("button",{
+    style:{width:"100%",padding:"13px",borderRadius:"10px",cursor:"pointer",fontWeight:"700",fontSize:"14px",background:"transparent",border:`1px solid ${C.border}`,color:C.muted},
+    onClick:()=>{ if(confirm("Sign out?")) doSignOut(); }
+  },"Sign Out"));
+  wrap.appendChild(card);
+  return wrap;
+}
+
+function buildAuthScreen() {
+  const wrap = h("div",{style:{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px"}});
+
+  // Logo
+  const logo = h("div",{style:{textAlign:"center",marginBottom:"32px"}});
+  logo.appendChild(h("div",{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:"48px",color:C.accent,letterSpacing:"0.05em",lineHeight:"1"}},"⚾ DINGERS ONLY"));
+  logo.appendChild(h("div",{style:{color:C.muted,fontSize:"13px",letterSpacing:"0.15em",textTransform:"uppercase",marginTop:"4px"}},"Fantasy Baseball"));
+  wrap.appendChild(logo);
+
+  const card = h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"16px",padding:"28px 24px",width:"100%",maxWidth:"400px",boxShadow:`0 4px 24px ${C.accent}11`}});
+
+  // ── Landing screen ────────────────────────────────────────────────────────
+  if(S.authScreen === "landing") {
+    card.appendChild(h("div",{style:{textAlign:"center",marginBottom:"24px"}},
+      h("div",{style:{color:C.text,fontWeight:"800",fontSize:"20px",marginBottom:"6px"}},"Welcome"),
+      h("div",{style:{color:C.muted,fontSize:"13px"}},"Sign in to your league or create a new one.")
+    ));
+    if(S.authError) card.appendChild(h("div",{style:{color:C.red,fontSize:"12px",marginBottom:"12px",textAlign:"center"}},S.authError));
+    card.appendChild(h("button",{
+      style:{width:"100%",padding:"13px",borderRadius:"10px",cursor:"pointer",fontWeight:"800",fontSize:"15px",background:C.accent,border:"none",color:"#fff",marginBottom:"10px"},
+      onClick:()=>set({authScreen:"signin",authError:""})
+    },"Sign In to League"));
+    card.appendChild(h("button",{
+      style:{width:"100%",padding:"13px",borderRadius:"10px",cursor:"pointer",fontWeight:"700",fontSize:"15px",background:"transparent",border:`1px solid ${C.accent}`,color:C.accent},
+      onClick:()=>set({authScreen:"signup",authError:""})
+    },"Create New League"));
+  }
+
+  // ── Sign in ───────────────────────────────────────────────────────────────
+  else if(S.authScreen === "signin") {
+    card.appendChild(h("div",{style:{color:C.text,fontWeight:"800",fontSize:"18px",marginBottom:"20px"}},"Sign In"));
+    if(S.authError) card.appendChild(h("div",{style:{color:C.red,fontSize:"12px",marginBottom:"12px",padding:"8px 12px",background:C.red+"11",borderRadius:"6px"}},S.authError));
+
+    const emailInp = h("input",{type:"email",placeholder:"Email address",style:{width:"100%",padding:"11px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",outline:"none",marginBottom:"10px",boxSizing:"border-box"}});
+    const passInp = h("input",{type:"password",placeholder:"Password",style:{width:"100%",padding:"11px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",outline:"none",marginBottom:"16px",boxSizing:"border-box"}});
+    card.appendChild(emailInp);
+    card.appendChild(passInp);
+
+    const signInBtn = h("button",{
+      style:{width:"100%",padding:"13px",borderRadius:"10px",cursor:"pointer",fontWeight:"800",fontSize:"15px",background:C.accent,border:"none",color:"#fff",marginBottom:"12px",opacity:S.authLoading?"0.6":"1"},
+      onClick: async () => {
+        const email = emailInp.value.trim();
+        const pass = passInp.value;
+        if(!email || !pass) { set({authError:"Please enter your email and password."}); return; }
+        set({authLoading:true, authError:""});
+        try {
+          await signInWithEmailAndPassword(auth, email, pass);
+          // onAuthStateChanged handles the rest
+        } catch(e) {
+          const msg = e.code === "auth/user-not-found" || e.code === "auth/wrong-password" || e.code === "auth/invalid-credential"
+            ? "Incorrect email or password." : e.message;
+          set({authLoading:false, authError:msg});
+        }
+      }
+    }, S.authLoading ? "Signing in…" : "Sign In");
+    passInp.addEventListener("keydown", e => { if(e.key==="Enter") signInBtn.click(); });
+    card.appendChild(signInBtn);
+
+    const bottomRow = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}});
+    bottomRow.appendChild(h("button",{style:{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:"12px",padding:"0"},onClick:()=>set({authScreen:"landing",authError:""})},"← Back"));
+    bottomRow.appendChild(h("button",{style:{background:"none",border:"none",color:C.accent,cursor:"pointer",fontSize:"12px",padding:"0"},onClick:()=>set({authScreen:"forgot",authError:""})},"Forgot password?"));
+    card.appendChild(bottomRow);
+  }
+
+  // ── Sign up (create new league) ───────────────────────────────────────────
+  else if(S.authScreen === "signup") {
+    card.appendChild(h("div",{style:{color:C.text,fontWeight:"800",fontSize:"18px",marginBottom:"6px"}},"Create New League"));
+    card.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"20px"}},"You'll be the commissioner. Invite others after setup."));
+    if(S.authError) card.appendChild(h("div",{style:{color:C.red,fontSize:"12px",marginBottom:"12px",padding:"8px 12px",background:C.red+"11",borderRadius:"6px"}},S.authError));
+
+    const emailInp = h("input",{type:"email",placeholder:"Your email address",style:{width:"100%",padding:"11px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",outline:"none",marginBottom:"10px",boxSizing:"border-box"}});
+    const passInp = h("input",{type:"password",placeholder:"Choose a password (6+ characters)",style:{width:"100%",padding:"11px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",outline:"none",marginBottom:"10px",boxSizing:"border-box"}});
+    const nameInp = h("input",{type:"text",placeholder:"League name (e.g. Dingers Only 2026)",style:{width:"100%",padding:"11px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",outline:"none",marginBottom:"16px",boxSizing:"border-box"}});
+    card.appendChild(emailInp); card.appendChild(passInp); card.appendChild(nameInp);
+
+    card.appendChild(h("button",{
+      style:{width:"100%",padding:"13px",borderRadius:"10px",cursor:"pointer",fontWeight:"800",fontSize:"15px",background:C.accent,border:"none",color:"#fff",marginBottom:"12px",opacity:S.authLoading?"0.6":"1"},
+      onClick: async () => {
+        const email = emailInp.value.trim();
+        const pass = passInp.value;
+        const name = nameInp.value.trim() || "DINGERS ONLY";
+        if(!email) { set({authError:"Please enter your email."}); return; }
+        if(pass.length < 6) { set({authError:"Password must be at least 6 characters."}); return; }
+        set({authLoading:true, authError:""});
+        try {
+          const cred = await createUserWithEmailAndPassword(auth, email, pass);
+          const leagueId = await createLeague(name, S.setupTeamCount||10, email, cred.user.uid);
+          set({authLoading:false, leagueId, isCommish:true, commishUnlocked:true});
+          // onAuthStateChanged + onSnapshot handle the rest
+        } catch(e) {
+          const msg = e.code === "auth/email-already-in-use"
+            ? "An account with this email already exists. Sign in instead."
+            : e.message;
+          set({authLoading:false, authError:msg});
+        }
+      }
+    }, S.authLoading ? "Creating league…" : "Create League & Account"));
+
+    card.appendChild(h("button",{style:{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:"12px",padding:"0"},onClick:()=>set({authScreen:"landing",authError:""})},"← Back"));
+  }
+
+  // ── Forgot password ───────────────────────────────────────────────────────
+  else if(S.authScreen === "forgot") {
+    card.appendChild(h("div",{style:{color:C.text,fontWeight:"800",fontSize:"18px",marginBottom:"6px"}},"Reset Password"));
+    card.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"20px"}},"We'll send a reset link to your email."));
+    if(S.authError) card.appendChild(h("div",{style:{color:S.authError.startsWith("✓")?C.green:C.red,fontSize:"12px",marginBottom:"12px",padding:"8px 12px",background:(S.authError.startsWith("✓")?C.green:C.red)+"11",borderRadius:"6px"}},S.authError));
+    const emailInp = h("input",{type:"email",placeholder:"Your email address",style:{width:"100%",padding:"11px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",outline:"none",marginBottom:"16px",boxSizing:"border-box"}});
+    card.appendChild(emailInp);
+    card.appendChild(h("button",{
+      style:{width:"100%",padding:"13px",borderRadius:"10px",cursor:"pointer",fontWeight:"800",fontSize:"15px",background:C.accent,border:"none",color:"#fff",marginBottom:"12px"},
+      onClick: async () => {
+        const email = emailInp.value.trim();
+        if(!email) { set({authError:"Please enter your email."}); return; }
+        try {
+          await sendPasswordResetEmail(auth, email);
+          set({authError:"✓ Reset email sent — check your inbox."});
+        } catch(e) { set({authError:e.message}); }
+      }
+    },"Send Reset Email"));
+    card.appendChild(h("button",{style:{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:"12px",padding:"0"},onClick:()=>set({authScreen:"signin",authError:""})},"← Back to Sign In"));
+  }
+
+  wrap.appendChild(card);
+  return wrap;
+}
+
 function buildLeagueSetup() {
   const wrap = h("div",{style:{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px"}});
   wrap.appendChild(h("div",{style:{fontFamily:"'Bebas Neue',sans-serif",fontSize:"48px",color:C.accent,letterSpacing:"0.05em",marginBottom:"8px",textAlign:"center"}},"⚾ DINGERS ONLY"));
@@ -3491,7 +3759,19 @@ function buildLeagueSetup() {
 function render() {
   const app = document.getElementById("app");
   app.innerHTML="";
-  // Show league setup if no teams configured yet
+  // Show auth screen if not signed in
+  if(!S.currentUser) {
+    app.appendChild(buildAuthScreen());
+    return;
+  }
+
+  // Show league picker if signed in but no league selected
+  if(S.authScreen === "pick_league") {
+    app.appendChild(buildPickLeague());
+    return;
+  }
+
+  // Show league setup if signed in, has league, but league not configured
   if(!S.leagueSetup && S.teams.length === 0) {
     app.appendChild(buildLeagueSetup());
     return;
@@ -3516,35 +3796,30 @@ function render() {
     )
   );
   const authBlock=h("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:"6px"}});
-  if(!S.commishUnlocked){
-    const pwRow=h("div",{style:{display:"flex",gap:"6px",alignItems:"center"}});
-    const pwInp=h("input",{type:"password",placeholder:"Commissioner PIN",style:{background:C.bg,border:`1px solid ${S.pwError?C.red:C.border}`,borderRadius:"6px",padding:"7px 10px",color:C.text,fontSize:"13px",outline:"none",width:"155px"}});
-    pwInp.value="";
-    pwInp.addEventListener("keydown",e=>{if(e.key==="Enter")handleLogin(pwInp.value);});
-    pwRow.append(pwInp,h("button",{style:{padding:"7px 12px",borderRadius:"6px",cursor:"pointer",background:C.accent,border:"none",color:"#ffffff",fontWeight:"700",fontSize:"13px"},onClick:()=>handleLogin(pwInp.value)},"Enter"));
-    authBlock.appendChild(pwRow);
-    if(S.pwError) authBlock.appendChild(h("span",{style:{color:C.red,fontSize:"12px"}},"Incorrect password"));
-    // Switch team / sign out
-    if(S.myTeamId !== null) {
-      authBlock.appendChild(h("button",{
-        style:{fontSize:"11px",color:C.muted,background:"none",border:"none",cursor:"pointer",textDecoration:"underline",padding:"0",marginTop:"2px"},
-        onClick:()=>{
-          if(confirm("Switch teams or sign out? This will clear your team identity.")) {
-            localStorage.removeItem("draftTeamId");
-            set({myTeamId:null, draftMyTeamId:null, tab:"standings"});
-          }
-        }
-      },"Switch / Sign Out"));
-    }
-  } else {
-    authBlock.appendChild(h("button",{style:{padding:"7px 14px",borderRadius:"6px",cursor:"pointer",background:C.accent,border:"none",color:"#ffffff",fontWeight:"700",fontSize:"13px"},onClick:()=>{set({showCommish:true,cpLocal:JSON.parse(JSON.stringify(S.teams)),cpActive:0});}},"⚙️ Manage League"));
+  // User identity + actions
+  const userEmail = S.currentUser?.email || "";
+  const shortEmail = userEmail.length > 18 ? userEmail.substring(0,16)+"…" : userEmail;
+  authBlock.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginBottom:"4px",textAlign:"right"}},shortEmail));
+  const btnRow = h("div",{style:{display:"flex",gap:"6px",alignItems:"center"}});
+  if(S.isCommish) {
+    btnRow.appendChild(h("button",{
+      style:{padding:"7px 14px",borderRadius:"6px",cursor:"pointer",background:C.accent,border:"none",color:"#ffffff",fontWeight:"700",fontSize:"12px"},
+      onClick:()=>set({showCommish:true,cpLocal:JSON.parse(JSON.stringify(S.teams)),cpActive:0})
+    },"⚙️ Manage"));
   }
+  btnRow.appendChild(h("button",{
+    style:{padding:"7px 12px",borderRadius:"6px",cursor:"pointer",background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:"12px"},
+    onClick:()=>{ if(confirm("Sign out?")) doSignOut(); }
+  },"Sign Out"));
+  authBlock.appendChild(btnRow);
   hInner.append(titleBlock,authBlock);
   header.appendChild(hInner);
   app.appendChild(header);
 
   // Tabs
   const myTeam = S.myTeamId !== null ? S.teams.find(t=>t.id===S.myTeamId) : null;
+  const draftStatus = S.draftState?.status;
+  const showDraftTab = draftStatus !== "complete"; // hide after draft ends
   const tabs=[
     ...(myTeam ? [{id:"myteam",label:"⭐ My Team"}] : []),
     {id:"standings",label:"🏆 Standings"},
@@ -3554,7 +3829,7 @@ function render() {
     {id:"recent",label:"📅 Recent"},
     {id:"history",label:"📈 History"},
     {id:"rules",label:"📖 Rules"},
-    {id:"draft",label:"🎯 Draft"},
+    ...(showDraftTab ? [{id:"draft",label:"🎯 Draft"}] : []),
   ];
   const tabBar=h("div",{style:{borderBottom:`1px solid ${C.border}`,background:C.surface}});
   const tabInner=h("div",{style:{maxWidth:"640px",margin:"0 auto",display:"flex",padding:"0 16px",overflowX:"auto"}});
@@ -3576,7 +3851,15 @@ function render() {
   else if(S.tab==="history") body.appendChild(buildHistory());
   else if(S.tab==="rules") body.appendChild(buildRules());
   else if(S.tab==="debug") body.appendChild(buildDebug());
-  else if(S.tab==="draft") body.appendChild(buildDraft());
+  else if(S.tab==="draft") {
+    if(S.draftState?.status === "complete") {
+      // Draft is done — redirect to standings
+      S.tab = "standings";
+      body.appendChild(buildStandings());
+    } else {
+      body.appendChild(buildDraft());
+    }
+  }
   else if(S.tab==="myteam") body.appendChild(buildMyTeam());
   app.appendChild(body);
 
@@ -3596,20 +3879,55 @@ function handleLogin(val) {
 
 // Load transactions first, THEN start listening to Firebase
 // This ensures transactions are available when onSnapshot fires
-// Subscribe to live draft state (runs independently of league data)
-subscribeDraft();
+// ── Auth state listener — drives the whole app startup ───────────────────────
+onAuthStateChanged(auth, async (user) => {
+  if(!user) {
+    // Not signed in — show auth screen
+    const leagueId = getLeagueIdFromUrl();
+    set({currentUser:null, leagueSetup:false, teams:[], isCommish:false,
+         commishUnlocked:false, leagueId,
+         authScreen: leagueId ? "signin" : "landing"});
+    return;
+  }
 
-// Hydrate persistent team identity from localStorage
-(function() {
+  // Signed in — figure out which league
+  let leagueId = S.leagueId || getLeagueIdFromUrl();
+
+  if(!leagueId) {
+    // User has an account but no league in URL — show landing with signed-in state
+    set({currentUser:user, authScreen:"pick_league", authError:""});
+    return;
+  }
+
+  // Init refs and load the league
+  initFirebaseRefs(leagueId);
+  setLeagueIdInUrl(leagueId);
+
+  // Hydrate persistent team identity from localStorage
   const saved = localStorage.getItem("draftTeamId");
   if(saved !== null) {
     const tid = parseInt(saved);
     if(!isNaN(tid)) S.myTeamId = tid;
   }
-})();
 
-loadTransactions().then(() => {
-  // Now start the Firebase listener — S.transactions is populated
+  subscribeDraft();
+
+  await loadTransactions();
+
+  // Determine if commish
+  const snap0 = await (async () => {
+    try {
+      const { getDoc: gd } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+      return await gd(leagueRef);
+    } catch(e) { return null; }
+  })();
+  const isCommish = snap0?.exists() && snap0.data().ownerUID === user.uid;
+
+  set({currentUser:user, leagueId, isCommish,
+       commishUnlocked: isCommish, // commish auto-unlocked
+       authError:""});
+
+  // Now start the Firebase listener
   onSnapshot(leagueRef, snap => {
     if(snap.exists()) {
       const data = snap.data();
@@ -3631,11 +3949,22 @@ loadTransactions().then(() => {
           S.draftCodes = newDraftCodes;
           render();
         } else {
+        // Auto-claim team by email if not already claimed
+          let autoMyTeamId = S.myTeamId;
+          if(autoMyTeamId === null && S.currentUser?.email) {
+            const matched = findTeamByEmail(withTx, S.currentUser.email);
+            if(matched) {
+              autoMyTeamId = matched.id;
+              localStorage.setItem("draftTeamId", String(autoMyTeamId));
+            }
+          }
           set({ teams: withTx, lastUpdated: data.lastUpdated||null,
                 leagueName: data.leagueName || S.leagueName,
                 leagueSetup: true,
                 draftState: newDraftState,
-                draftCodes: newDraftCodes });
+                draftCodes: newDraftCodes,
+                myTeamId: autoMyTeamId !== null ? autoMyTeamId : S.myTeamId,
+                draftMyTeamId: autoMyTeamId !== null ? autoMyTeamId : S.draftMyTeamId });
           maybeAutoSnapshot();
         }
       } else {
