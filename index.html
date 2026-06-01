@@ -4005,50 +4005,56 @@ onAuthStateChanged(auth, async (user) => {
     set({currentUser:user, authScreen:"finding_league", authError:"", authLoading:true});
     try {
       const leaguesCol = collection(db, "leagues");
+      set({authError:`Searching… (uid: ${user.uid?.slice(0,8)}, email: ${user.email})`});
+
       // Query by ownerUID first
       const ownerSnap = await getDocs(query(leaguesCol, where("ownerUID","==",user.uid)));
       const found = [];
       ownerSnap.forEach(d => found.push({id:d.id, ...d.data()}));
-      // Also check ownerEmail fallback for leagues created before Option A
+      set({authError:`ownerUID query: ${found.length} results`});
+
+      // Also check ownerEmail fallback
       if(!found.length) {
         const emailOwnerSnap = await getDocs(query(leaguesCol, where("ownerEmail","==",user.email)));
         emailOwnerSnap.forEach(d => {
           if(!found.find(f=>f.id===d.id)) found.push({id:d.id, ...d.data()});
         });
+        set({authError:`ownerEmail query: ${found.length} results`});
       }
-      // Also check by email in teams array (for non-commish members)
+
+      // Also check by email in teams array
       if(!found.length) {
         const allSnap = await getDocs(query(leaguesCol));
+        let allCount = 0;
         allSnap.forEach(d => {
+          allCount++;
           const data = d.data();
           const hasEmail = (data.teams||[]).some(t =>
             t.email?.toLowerCase() === user.email?.toLowerCase()
           );
           if(hasEmail) found.push({id:d.id, ...data});
         });
+        set({authError:`all-leagues scan: ${allCount} docs, ${found.length} matches`});
       }
-      if(found.length === 1) {
-        // Exactly one league — auto-redirect
+
+      if(found.length >= 1) {
         leagueId = found[0].id;
         initFirebaseRefs(leagueId);
         setLeagueIdInUrl(leagueId);
         set({currentUser:user, leagueId, authLoading:false, authError:""});
-        // Fall through to league load below
       } else if(found.length > 1) {
-        // Multiple leagues — let user pick
         set({currentUser:user, authScreen:"pick_league", authLoading:false,
              foundLeagues: found.map(l=>({id:l.id, name:l.leagueName||l.id}))});
         return;
       } else {
-        // No leagues found
         set({currentUser:user, authScreen:"pick_league", authLoading:false,
-             foundLeagues:[], authError:""});
+             foundLeagues:[], authError:`No leagues found. UID=${user.uid?.slice(0,8)} email=${user.email}`});
         return;
       }
     } catch(e) {
       console.error("League lookup failed:", e);
       set({currentUser:user, authScreen:"pick_league", authLoading:false,
-           foundLeagues:[], authError:"Couldn't find your league. Try using your league link."});
+           foundLeagues:[], authError:`Error: ${e.message}`});
       return;
     }
   }
