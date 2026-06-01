@@ -4006,7 +4006,9 @@ onAuthStateChanged(auth, async (user) => {
     try {
       // Fetch all leagues and filter locally — avoids needing Firestore indexes
       const leaguesCol = collection(db, "leagues");
+      set({authError:"Fetching leagues collection..."});
       const allSnap = await getDocs(leaguesCol);
+      set({authError:`Got ${allSnap.size} league docs`});
       const found = [];
       allSnap.forEach(d => {
         const data = d.data();
