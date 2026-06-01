@@ -3996,8 +3996,6 @@ onAuthStateChanged(auth, async (user) => {
   }
 
   // Signed in — figure out which league
-  // Guard against onAuthStateChanged firing multiple times
-  if(S.currentUser && S.leagueSetup) return;
   let leagueId = S.leagueId || getLeagueIdFromUrl();
 
   if(!leagueId) {
@@ -4073,7 +4071,7 @@ onAuthStateChanged(auth, async (user) => {
   onSnapshot(leagueRef, snap => {
     if(snap.exists()) {
       const data = snap.data();
-      if(data.teams?.length > 0) {
+      if(data.teams?.length >= 0 && data.teams !== undefined) {
         // Dynamic teams — load directly from Firebase, apply transactions on top
         const merged = data.teams.map(t => ({...t, players: (t.players||[]).map(p => ({...p}))}));
         const withTx = applyTransactions(merged, S.transactions);
@@ -4109,8 +4107,8 @@ onAuthStateChanged(auth, async (user) => {
                 draftMyTeamId: autoMyTeamId !== null ? autoMyTeamId : S.draftMyTeamId });
           maybeAutoSnapshot();
         }
-      } else {
-        // No teams yet — show league setup
+      } else if(!data.teams) {
+        // No teams field at all — show league setup
         set({ leagueSetup: false });
       }
     }
