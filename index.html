@@ -3996,18 +3996,17 @@ onAuthStateChanged(auth, async (user) => {
   }
 
   // Signed in — figure out which league
+  // Guard against onAuthStateChanged firing multiple times
+  if(S.currentUser && S.leagueSetup) return;
   let leagueId = S.leagueId || getLeagueIdFromUrl();
 
   if(!leagueId) {
     // No league in URL — search Firebase for leagues this user belongs to
     set({currentUser:user, authScreen:"finding_league", authError:"", authLoading:true});
-    alert("LOOKUP RUNNING — user: " + user.email);
     try {
       // Fetch all leagues and filter locally — avoids needing Firestore indexes
       const leaguesCol = collection(db, "leagues");
-      alert("Calling getDocs...");
       const allSnap = await getDocs(leaguesCol);
-      alert("getDocs returned: " + allSnap.size + " docs");
       const found = [];
       allSnap.forEach(d => {
         const data = d.data();
@@ -4025,8 +4024,7 @@ onAuthStateChanged(auth, async (user) => {
         leagueId = found[0].id;
         initFirebaseRefs(leagueId);
         setLeagueIdInUrl(leagueId);
-        set({currentUser:user, leagueId, authLoading:false, authError:""});
-        // fall through to league load
+        // Don't call set() here — fall through to full league load below
       } else if(found.length > 1) {
         set({currentUser:user, authScreen:"pick_league", authLoading:false,
              foundLeagues:found});
