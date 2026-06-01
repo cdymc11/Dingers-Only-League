@@ -3984,126 +3984,126 @@ function handleLogin(val) {
 // Load transactions first, THEN start listening to Firebase
 // This ensures transactions are available when onSnapshot fires
 // ── Auth state listener — drives the whole app startup ───────────────────────
-let _authInitializing = false; // prevents double-initialization
-onAuthStateChanged(auth, async (user) => {
-  if(!user) {
-    // Not signed in — show auth screen
-    const leagueId = getLeagueIdFromUrl();
-    S.leagueId = leagueId || null; // ensure clean state
-    set({currentUser:null, leagueSetup:false, teams:[], isCommish:false,
-         commishUnlocked:false, leagueId: leagueId || null,
-         authScreen: leagueId ? "signin" : "landing"});
-    return;
-  }
+// Simple approach: onAuthStateChanged just captures the user.
+// A separate loadLeague() function handles all async league loading.
+let _leagueLoaded = false;
 
-  // Signed in — figure out which league
-  if(_authInitializing) return; // prevent concurrent initialization
-  _authInitializing = true;
-  let leagueId = S.leagueId || getLeagueIdFromUrl();
+function startLeagueListener(leagueId) {
+  initFirebaseRefs(leagueId);
+  setLeagueIdInUrl(leagueId);
+  subscribeDraft();
+
+  // Load transactions then start snapshot
+  loadTransactions().then(() => {
+    // Check commish status
+    getDoc(leagueRef).then(snap0 => {
+      const isCommish = snap0?.exists() && (
+        snap0.data().ownerUID === S.currentUser?.uid ||
+        snap0.data().ownerEmail === S.currentUser?.email
+      );
+      S.isCommish = isCommish;
+      S.commishUnlocked = isCommish;
+    }).catch(() => {});
+
+    // Start live listener
+    onSnapshot(leagueRef, snap => {
+      if(!snap.exists()) { set({leagueSetup:false}); return; }
+      const data = snap.data();
+      const merged = (data.teams||[]).map(t => ({...t, players:(t.players||[]).map(p=>({...p}))}));
+      const withTx = applyTransactions(merged, S.transactions);
+      const newDraftState = data.draftState || S.draftState || null;
+      const newDraftCodes = data.draftCodes || S.draftCodes || null;
+      const draftOnlyChange = (
+        S.leagueSetup === true &&
+        JSON.stringify(newDraftState) !== JSON.stringify(S.draftState) &&
+        data.lastUpdated === S.lastUpdated
+      );
+      if(draftOnlyChange && S.tab === "draft") {
+        S.draftState = newDraftState;
+        S.draftCodes = newDraftCodes;
+        render();
+        return;
+      }
+      let autoMyTeamId = S.myTeamId;
+      if(autoMyTeamId === null && S.currentUser?.email) {
+        const matched = findTeamByEmail(withTx, S.currentUser.email);
+        if(matched) {
+          autoMyTeamId = matched.id;
+          localStorage.setItem("draftTeamId", String(autoMyTeamId));
+        }
+      }
+      set({
+        teams: withTx,
+        lastUpdated: data.lastUpdated||null,
+        leagueName: data.leagueName || S.leagueName,
+        leagueSetup: true,
+        isCommish: S.isCommish,
+        commishUnlocked: S.commishUnlocked,
+        draftState: newDraftState,
+        draftCodes: newDraftCodes,
+        myTeamId: autoMyTeamId !== null ? autoMyTeamId : S.myTeamId,
+        draftMyTeamId: autoMyTeamId !== null ? autoMyTeamId : S.draftMyTeamId,
+      });
+      maybeAutoSnapshot();
+    });
+  });
+}
+
+async function loadLeague(user) {
+  if(_leagueLoaded) return;
+  _leagueLoaded = true;
+
+  let leagueId = getLeagueIdFromUrl();
 
   if(!leagueId) {
-    // No league in URL — search Firebase for leagues this user belongs to
-    set({currentUser:user, authScreen:"finding_league", authError:"", authLoading:true});
+    // Search for user's league
+    set({authScreen:"finding_league", authLoading:true});
     try {
-      // Fetch all leagues and filter locally — avoids needing Firestore indexes
-      const leaguesCol = collection(db, "leagues");
-      const allSnap = await getDocs(leaguesCol);
+      const allSnap = await getDocs(collection(db, "leagues"));
       const found = [];
       allSnap.forEach(d => {
         const data = d.data();
-        const isOwnerUID = data.ownerUID === user.uid;
-        const isOwnerEmail = data.ownerEmail?.toLowerCase() === user.email?.toLowerCase();
-        const isTeamEmail = (data.teams||[]).some(t =>
-          t.email?.toLowerCase() === user.email?.toLowerCase()
-        );
-        if(isOwnerUID || isOwnerEmail || isTeamEmail) {
-          found.push({id:d.id, name:data.leagueName||d.id});
-        }
+        if(
+          data.ownerUID === user.uid ||
+          data.ownerEmail?.toLowerCase() === user.email?.toLowerCase() ||
+          (data.teams||[]).some(t => t.email?.toLowerCase() === user.email?.toLowerCase())
+        ) found.push({id:d.id, name:data.leagueName||d.id});
       });
 
       if(found.length === 1) {
         leagueId = found[0].id;
-        S.leagueId = leagueId; // Set immediately to prevent race condition
-        initFirebaseRefs(leagueId);
-        setLeagueIdInUrl(leagueId);
-        // Fall through to full league load below
       } else if(found.length > 1) {
-        set({currentUser:user, authScreen:"pick_league", authLoading:false,
-             foundLeagues:found});
+        set({authScreen:"pick_league", authLoading:false, foundLeagues:found});
+        _leagueLoaded = false;
         return;
       } else {
-        set({currentUser:user, authScreen:"pick_league", authLoading:false,
-             foundLeagues:[], authError:""});
+        set({authScreen:"pick_league", authLoading:false, foundLeagues:[]});
+        _leagueLoaded = false;
         return;
       }
     } catch(e) {
-      console.error("League lookup failed:", e);
-      set({currentUser:user, authScreen:"pick_league", authLoading:false,
-           foundLeagues:[], authError:`Could not search leagues: ${e.message}`});
+      set({authScreen:"pick_league", authLoading:false, foundLeagues:[],
+           authError:"Error finding league: " + e.message});
+      _leagueLoaded = false;
       return;
     }
   }
 
-  initFirebaseRefs(leagueId);
-  setLeagueIdInUrl(leagueId);
-  subscribeDraft();
-  await loadTransactions();
-  let snap0 = null;
-  try { snap0 = await getDoc(leagueRef); } catch(e) { alert("getDoc error: " + e.message); }
-  const isCommish = snap0?.exists() && (
-    snap0.data().ownerUID === user.uid ||
-    snap0.data().ownerEmail === user.email
-  );
-  set({currentUser:user, leagueId, isCommish,
-       commishUnlocked: isCommish,
-       authError:""});
-  _authInitializing = false;
-  onSnapshot(leagueRef, snap => {
-    if(snap.exists()) {
-      const data = snap.data();
-      if(data.teams?.length >= 0 && data.teams !== undefined) {
-        // Dynamic teams — load directly from Firebase, apply transactions on top
-        const merged = data.teams.map(t => ({...t, players: (t.players||[]).map(p => ({...p}))}));
-        const withTx = applyTransactions(merged, S.transactions);
-        // Check if only draftState changed — avoid full re-render during active draft
-        const newDraftState = data.draftState || S.draftState || null;
-        const newDraftCodes = data.draftCodes || S.draftCodes || null;
-        const draftOnlyChange = (
-          S.leagueSetup === true &&
-          JSON.stringify(newDraftState) !== JSON.stringify(S.draftState) &&
-          data.lastUpdated === S.lastUpdated
-        );
-        if(draftOnlyChange && S.tab === "draft") {
-          // Silently update draft state and re-render just the draft tab
-          S.draftState = newDraftState;
-          S.draftCodes = newDraftCodes;
-          render();
-        } else {
-        // Auto-claim team by email if not already claimed
-          let autoMyTeamId = S.myTeamId;
-          if(autoMyTeamId === null && S.currentUser?.email) {
-            const matched = findTeamByEmail(withTx, S.currentUser.email);
-            if(matched) {
-              autoMyTeamId = matched.id;
-              localStorage.setItem("draftTeamId", String(autoMyTeamId));
-            }
-          }
-          set({ teams: withTx, lastUpdated: data.lastUpdated||null,
-                leagueName: data.leagueName || S.leagueName,
-                leagueSetup: true,
-                draftState: newDraftState,
-                draftCodes: newDraftCodes,
-                myTeamId: autoMyTeamId !== null ? autoMyTeamId : S.myTeamId,
-                draftMyTeamId: autoMyTeamId !== null ? autoMyTeamId : S.draftMyTeamId });
-          maybeAutoSnapshot();
-        }
-      } else if(!data.teams) {
-        // No teams field at all — show league setup
-        set({ leagueSetup: false });
-      }
-    }
-  });
-  render();
+  set({leagueId, authLoading:false});
+  startLeagueListener(leagueId);
+}
+
+onAuthStateChanged(auth, (user) => {
+  if(!user) {
+    _leagueLoaded = false;
+    const leagueId = getLeagueIdFromUrl();
+    set({currentUser:null, leagueSetup:false, teams:[], isCommish:false,
+         commishUnlocked:false, leagueId:leagueId||null,
+         authScreen: leagueId ? "signin" : "landing"});
+    return;
+  }
+  set({currentUser:user});
+  loadLeague(user);
 });
 setInterval(() => { if(S.tab === "rules") render(); }, 60000);
 
