@@ -402,7 +402,7 @@ let S = {
   historyWeeks: null, historyLoading: false, historyWeekIdx: 0,
   transactions: [], // [{id, teamId, droppedPlayer, droppedAt, droppedStat, addedPlayer, addedAt, hrBaseline, hbpBaseline, type}]
   hrCelebration: null, // {name, count, type}
-  commishInput: "", commishUnlocked: false, showCommish: false, pwError: false, // legacy
+  commishInput: "", commishUnlocked: false, showCommish: false, pwError: false,
   onboardingStep: 0, // 0 = not shown, 1-5 = step, -1 = dismissed
   foundLeagues: [],  // leagues found during login lookup — replaced by Firebase Auth but kept for transition
   refreshing: false, refreshStatus: "",
@@ -3959,7 +3959,16 @@ function render() {
   const shortEmail = userEmail.length > 18 ? userEmail.substring(0,16)+"…" : userEmail;
   authBlock.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginBottom:"4px",textAlign:"right"}},shortEmail));
   const btnRow = h("div",{style:{display:"flex",gap:"6px",alignItems:"center"}});
-  if(S.isCommish) {
+
+  // Manage League — visible to all, PIN-protected
+  if(!S.commishUnlocked) {
+    const pwWrap = h("div",{style:{display:"flex",gap:"4px",alignItems:"center"}});
+    const pwInp = h("input",{type:"password",placeholder:"Commissioner PIN",style:{background:C.bg,border:`1px solid ${S.pwError?C.red:C.border}`,borderRadius:"6px",padding:"5px 8px",color:C.text,fontSize:"12px",outline:"none",width:"130px"}});
+    pwInp.addEventListener("keydown",e=>{if(e.key==="Enter")handleLogin(pwInp.value);});
+    pwWrap.appendChild(pwInp);
+    pwWrap.appendChild(h("button",{style:{padding:"5px 10px",borderRadius:"6px",cursor:"pointer",background:C.accent,border:"none",color:"#fff",fontWeight:"700",fontSize:"12px"},onClick:()=>handleLogin(pwInp.value)},"Go"));
+    btnRow.appendChild(pwWrap);
+  } else {
     btnRow.appendChild(h("button",{
       style:{padding:"7px 14px",borderRadius:"6px",cursor:"pointer",background:C.accent,border:"none",color:"#ffffff",fontWeight:"700",fontSize:"12px"},
       onClick:()=>set({showCommish:true,cpLocal:JSON.parse(JSON.stringify(S.teams)),cpActive:0})
@@ -3969,6 +3978,7 @@ function render() {
       onClick:()=>set({onboardingStep:1})
     },"?"));
   }
+
   btnRow.appendChild(h("button",{
     style:{padding:"7px 12px",borderRadius:"6px",cursor:"pointer",background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:"12px"},
     onClick:()=>{ if(confirm("Sign out?")) doSignOut(); }
@@ -4037,7 +4047,7 @@ function render() {
 function handleLogin(val) {
   const v = (val !== undefined ? val : S.commishInput).trim();
   if(v===PASS){ set({commishUnlocked:true,showCommish:true,pwError:false,cpLocal:JSON.parse(JSON.stringify(S.teams)),cpActive:0}); }
-  else set({pwError:true});
+  else set({pwError:true, commishUnlocked:false});
 }
 
 // Load transactions first, THEN start listening to Firebase
