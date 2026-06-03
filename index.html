@@ -2492,24 +2492,6 @@ function buildCommish() {
   });
   lsBody.appendChild(lnInp);
 
-  // Season start date
-  lsBody.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"4px",marginTop:"16px"}},"Season Start Date"));
-  lsBody.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginBottom:"6px"}},"Stats before this date won\'t count toward standings. Leave blank to count from MLB Opening Day."));
-  const sdInp = h("input",{type:"date",style:{width:"100%",padding:"9px 12px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"14px",outline:"none",marginBottom:"6px",boxSizing:"border-box"}});
-  sdInp.value = S.seasonStartDate || "";
-  sdInp.addEventListener("change", e => { S.seasonStartDate = e.target.value || null; });
-  lsBody.appendChild(sdInp);
-  // Show baseline status
-  const today = new Date().toISOString().split("T")[0];
-  if(S.seasonStartDate) {
-    const isPast = S.seasonStartDate <= today;
-    lsBody.appendChild(h("div",{style:{color:isPast?C.green:C.accent,fontSize:"11px",marginBottom:"4px"}},
-      isPast
-        ? `✓ Active — stats from ${S.seasonStartDate} onward count`
-        : `⏳ Upcoming — starts ${S.seasonStartDate}`
-    ));
-  }
-
   // Team count
   lsBody.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"Number of Teams"));
   const tcRow = h("div",{style:{display:"flex",alignItems:"center",gap:"12px",marginBottom:"6px"}});
@@ -2727,17 +2709,22 @@ function buildCommish() {
       setTimeout(()=>set({cpStatus:""}),5000);
     }
   },S.cpRefreshing?"⟳ Refreshing…":"⟳ Refresh Live Stats"));
-  actions.appendChild(h("button",{
-    style:{padding:"10px 24px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"13px",background:C.accent,border:"none",color:"#ffffff"},
+  const saveBtn = h("button",{
+    style:{padding:"10px 24px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"13px",background:C.accent,border:"none",color:"#ffffff",transition:"background 0.3s,color 0.3s"},
     onClick:async()=>{
       await saveToFirebase(local);
-      // Sync S.teams immediately so the rest of the app reflects the change
-      // without waiting for the Firebase onSnapshot round-trip
       const withTx = applyTransactions(local, S.transactions);
-      set({teams: withTx, cpLocal: JSON.parse(JSON.stringify(local)), cpStatus:"✓ Saved!"});
-      setTimeout(()=>set({cpStatus:""}),2000);
+      // Flash the button green with a checkmark
+      saveBtn.textContent = "✓ Saved!";
+      saveBtn.style.background = C.green;
+      setTimeout(()=>{
+        saveBtn.textContent = "💾 Save";
+        saveBtn.style.background = C.accent;
+      }, 2000);
+      set({teams: withTx, cpLocal: JSON.parse(JSON.stringify(local))});
     }
-  },"💾 Save"));
+  },"💾 Save");
+  actions.appendChild(saveBtn);
   rsBody.appendChild(actions);
 
   // ── Transaction History ───────────────────────────────────────────────────
@@ -2826,9 +2813,82 @@ function buildCommish() {
     startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px"}},`Pick ${(S.draftState?.currentPickIdx||0)+1} of ${S.draftState?.order?.length||0} · Close this panel and go to the Draft tab to follow along.`));
   } else if(currentDraftStatus === "complete") {
     startCard.appendChild(h("div",{style:{color:C.accent,fontWeight:"700",fontSize:"13px",marginBottom:"4px"}},"✓ Draft complete — rosters have been saved."));
-    startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px"}},"Head to Standings to see the final rosters."));
+    startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"8px"}},"Head to Standings to see the final rosters."));
+    // Show locked start date
+    const sdToday2 = new Date().toISOString().split("T")[0];
+    if(S.seasonStartDate) {
+      const isPast = S.seasonStartDate <= sdToday2;
+      startCard.appendChild(h("div",{style:{
+        background:isPast?`${C.green}11`:`${C.accent}11`,
+        border:`1px solid ${isPast?C.green:C.accent}33`,
+        borderRadius:"8px",padding:"8px 12px",fontSize:"12px",
+        color:isPast?C.green:C.accent
+      }}, isPast
+        ? `✓ Scoring active — stats from ${S.seasonStartDate} onward count`
+        : `⏳ Scoring starts ${S.seasonStartDate} — standings show 0 until then`
+      ));
+    } else {
+      startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px"}},"Scoring: All stats from MLB Opening Day"));
+    }
+    startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"10px",marginTop:"6px"}},"Start date is locked. Reset league to change it."));
   } else {
-    startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"10px"}},"Once everyone has signed in and claimed their team, set the format and number of rounds, then start the draft. Draft order is randomized automatically."));
+    startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"14px"}},"Once everyone has signed in and claimed their team, set the scoring start date, format, and rounds, then start the draft. Draft order is randomized automatically."));
+
+    // ── Scoring start date ──────────────────────────────────────────────────
+    startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},"When does your league start scoring?"));
+    const sdToday = new Date().toISOString().split("T")[0];
+    const sdRow = h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:"14px"}});
+    const useMLB = !S.seasonStartDate; // default = MLB season
+    ["mlb","custom"].forEach(opt => {
+      const active = opt==="mlb" ? useMLB : !useMLB;
+      const btn = h("button",{
+        style:{padding:"10px",borderRadius:"8px",cursor:"pointer",textAlign:"left",
+          background:active?`${C.accent}18`:C.card,
+          border:`1px solid ${active?C.accent:C.border}`},
+        onClick:()=>{
+          if(opt==="mlb") {
+            S.seasonStartDate = null;
+            set({seasonStartDate:null});
+          } else {
+            // Default to today if switching to custom
+            if(!S.seasonStartDate) {
+              S.seasonStartDate = sdToday;
+              set({seasonStartDate:sdToday});
+            } else {
+              set({seasonStartDate:S.seasonStartDate});
+            }
+          }
+        }
+      });
+      btn.appendChild(h("div",{style:{color:active?C.accent:C.text,fontWeight:"700",fontSize:"13px",marginBottom:"2px"}},
+        opt==="mlb" ? "⚾ MLB Opening Day" : "📅 Custom Date"
+      ));
+      btn.appendChild(h("div",{style:{color:C.muted,fontSize:"10px",lineHeight:"1.3"}},
+        opt==="mlb" ? "All season stats count (default)" : "Only stats from chosen date count"
+      ));
+      sdRow.appendChild(btn);
+    });
+    startCard.appendChild(sdRow);
+
+    // Custom date picker — only shown when custom is selected
+    if(!useMLB) {
+      const sdPickerWrap = h("div",{style:{marginBottom:"14px"}});
+      const sdPicker = h("input",{type:"date",style:{width:"100%",padding:"9px 12px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.accent}44`,color:C.text,fontSize:"14px",outline:"none",boxSizing:"border-box"}});
+      sdPicker.value = S.seasonStartDate || sdToday;
+      sdPicker.addEventListener("change", e => {
+        S.seasonStartDate = e.target.value || null;
+        set({seasonStartDate:S.seasonStartDate});
+      });
+      sdPickerWrap.appendChild(sdPicker);
+      sdPickerWrap.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginTop:"4px"}},
+        S.seasonStartDate && S.seasonStartDate > sdToday
+          ? `⏳ Season starts ${S.seasonStartDate} — standings will show 0 until then`
+          : S.seasonStartDate
+            ? `✓ Stats from ${S.seasonStartDate} onward will count`
+            : ""
+      ));
+      startCard.appendChild(sdPickerWrap);
+    }
 
     // Draft format toggle
     startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"6px"}},"Draft Format"));
@@ -2992,6 +3052,10 @@ async function generateDraftCodes() {
 // Initialize a new draft in Firebase
 async function initDraft(numRounds, format="snake") {
   if(!S.teams.length) { alert("No teams loaded yet."); return; }
+  // Save seasonStartDate to league doc before starting draft (locks it in)
+  if(leagueRef) {
+    await setDoc(leagueRef, {seasonStartDate: S.seasonStartDate || null}, {merge:true});
+  }
   // Randomize team order — no structural first-pick advantage
   const teamIds = [...S.teams.map(t=>t.id)].sort(() => Math.random() - 0.5);
   const order = [];
