@@ -424,7 +424,7 @@ let S = {
   backfillRunning: false, backfillStatus: "", backfillDone: false,
   setupDraftRounds: 8,
   draftFormat: "snake",   // "snake" | "linear"
-  commishSections: {league:false, roster:false, invites:false, draft:false}, // open/closed
+  commishSections: {league:false, roster:false, draft:false}, // open/closed
   // draft
   draftState: null,          // live draft state from Firebase
   draftCodes: null,          // { teamId: code } map
@@ -2613,14 +2613,39 @@ function buildCommish() {
   const of=h("div"); of.appendChild(h("label",{style:{color:C.muted,fontSize:"11px",textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:"4px"}},"Owner")); of.appendChild(inp(team.owner||"",v=>{local[S.cpActive].owner=v;set({cpLocal:local})},"Display name"));
   fields.append(nf,of);
   rsBody.appendChild(fields);
-  // Email field — used for auto-login and invites
+  // Email field with inline invite button
   const emailWrap = h("div",{style:{marginBottom:"16px"}});
   emailWrap.appendChild(h("label",{style:{color:C.muted,fontSize:"11px",textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:"4px"}},"Owner Email"));
-  const emailInpField = h("input",{type:"email",placeholder:"owner@email.com",style:{width:"100%",padding:"7px 10px",borderRadius:"6px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"13px",boxSizing:"border-box",outline:"none"}});
+  const emailRow = h("div",{style:{display:"flex",gap:"6px",alignItems:"center"}});
+  const emailInpField = h("input",{type:"email",placeholder:"owner@email.com",style:{flex:"1",padding:"7px 10px",borderRadius:"6px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"13px",boxSizing:"border-box",outline:"none"}});
   emailInpField.value = team.email||"";
   emailInpField.addEventListener("blur", e => { local[S.cpActive].email=e.target.value.trim().toLowerCase(); set({cpLocal:local}); });
-  emailWrap.appendChild(emailInpField);
-  emailWrap.appendChild(h("div",{style:{color:C.muted,fontSize:"10px",marginTop:"3px"}},"When this owner signs in with this email, they'll be auto-assigned to this team."));
+  emailRow.appendChild(emailInpField);
+  // Inline invite button
+  const _leagueUrl = `${window.location.origin}${window.location.pathname}?league=${S.leagueId}`;
+  const inviteBtn = h("button",{
+    style:{padding:"7px 12px",borderRadius:"6px",cursor:"pointer",fontWeight:"700",fontSize:"12px",
+      background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,whiteSpace:"nowrap"},
+    onClick:()=>{
+      const email = emailInpField.value.trim();
+      if(!email) { alert("Enter an email address first."); return; }
+      const tName = team.name || `Team ${S.cpActive+1}`;
+      const owner = team.owner || tName;
+      const subject = encodeURIComponent(`You're invited to ${S.leagueName}`);
+      const body = encodeURIComponent(
+        `Hey ${owner}!\n\n` +
+        `You've been invited to join ${S.leagueName} on Dingers Only.\n\n` +
+        `Click the link below to sign up and claim your team (${tName}):\n\n` +
+        `${_leagueUrl}\n\n` +
+        `Create an account using this email address (${email}) so you're auto-assigned to your team.\n\n` +
+        `See you on draft day!`
+      );
+      window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
+    }
+  },"✉️ Invite");
+  emailRow.appendChild(inviteBtn);
+  emailWrap.appendChild(emailRow);
+  emailWrap.appendChild(h("div",{style:{color:C.muted,fontSize:"10px",marginTop:"3px"}},"Owner signs in with this email to auto-join their team."));
   rsBody.appendChild(emailWrap);
 
   // ── HR Players ────────────────────────────────────────────────────────────
@@ -2762,47 +2787,19 @@ function buildCommish() {
   // SECTION 4 — DRAFT MANAGEMENT
   // ════════════════════════════════════════════════════════════════════════
   // ── Invite Section ─────────────────────────────────────────────────────────
-  const inviteSection = section("Invite Owners","✉️","invites"); const invBody = inviteSection._body;
-  invBody.appendChild(note("Assign an email address to each team above, then send each owner their invite link. When they click it and sign in, they're auto-assigned to their team."));
-
-  const leagueUrl = `${window.location.origin}${window.location.pathname}?league=${S.leagueId}`;
-  const urlBox = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"10px 12px",border:`1px solid ${C.border}`,marginBottom:"14px",display:"flex",gap:"8px",alignItems:"center"}});
-  urlBox.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",flex:"1",wordBreak:"break-all"}},leagueUrl));
-  urlBox.appendChild(h("button",{
-    style:{padding:"5px 12px",borderRadius:"6px",cursor:"pointer",fontWeight:"700",fontSize:"11px",background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,whiteSpace:"nowrap"},
-    onClick:()=>{ navigator.clipboard?.writeText(leagueUrl); }
-  },"Copy"));
-  invBody.appendChild(urlBox);
-
-  // Per-team invite buttons
-  const teamsWithEmail = local.filter(t => t.email && t.id !== 0); // skip commish (team 0)
-  if(!teamsWithEmail.length) {
-    invBody.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"8px"}},"Add email addresses to your teams above to enable invites."));
-  } else {
-    teamsWithEmail.forEach(t => {
-      const subject = encodeURIComponent(`You're invited to ${S.leagueName}`);
-      const body = encodeURIComponent(
-        `Hey ${t.owner||t.name}!\n\n` +
-        `You've been invited to join ${S.leagueName} on Dingers Only.\n\n` +
-        `Click the link below to sign up and claim your team (${t.name}):\n\n` +
-        `${leagueUrl}\n\n` +
-        `Create an account using this email address (${t.email}) so you're auto-assigned to your team.\n\n` +
-        `See you on draft day!`
-      );
-      const mailtoLink = `mailto:${t.email}?subject=${subject}&body=${body}`;
-      const row = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}22`}});
-      row.appendChild(h("div",{},
-        h("div",{style:{color:C.text,fontSize:"13px",fontWeight:"600"}},t.name),
-        h("div",{style:{color:C.muted,fontSize:"11px"}},t.email)
-      ));
-      row.appendChild(h("a",{href:mailtoLink,style:{padding:"5px 14px",borderRadius:"6px",cursor:"pointer",fontWeight:"700",fontSize:"12px",background:`${C.accent}18`,border:`1px solid ${C.accent}44`,color:C.accent,textDecoration:"none",whiteSpace:"nowrap"}},"✉️ Invite"));
-      invBody.appendChild(row);
-    });
-  }
-  panel.appendChild(inviteSection);
-
   const draftSection = section("Draft Management","🎯","draft"); const dsBody = draftSection._body;
-  dsBody.appendChild(note("Run the live snake draft. Make sure all owners have accepted their invites and are signed in, then start the draft below. Draft order is randomized automatically — no team has a structural advantage."));
+  const draftComplete = S.draftState?.status === "complete";
+  if(draftComplete) {
+    dsBody.appendChild(h("div",{style:{
+      background:`${C.accent}11`,border:`1px solid ${C.accent}33`,
+      borderRadius:"8px",padding:"12px 14px",marginBottom:"12px"
+    }},
+      h("div",{style:{color:C.accent,fontWeight:"700",fontSize:"13px",marginBottom:"4px"}},"🔒 Draft Complete — Settings Locked"),
+      h("div",{style:{color:C.muted,fontSize:"12px"}},"Draft settings cannot be changed after the draft. Reset the league to start over.")
+    ));
+  } else {
+    dsBody.appendChild(note("Run the live snake draft. Make sure all owners have signed in, then set your options and start the draft. Draft order is randomized automatically."));
+  }
 
   // Start draft (Step 1 now — codes removed, email login replaces them)
   const startCard = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"10px"}});
@@ -2832,6 +2829,7 @@ function buildCommish() {
     }
     startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"10px",marginTop:"6px"}},"Start date is locked. Reset league to change it."));
   } else {
+  if(!draftComplete) {
     startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"14px"}},"Once everyone has signed in and claimed their team, set the scoring start date, format, and rounds, then start the draft. Draft order is randomized automatically."));
 
     // ── Scoring start date ──────────────────────────────────────────────────
@@ -2924,6 +2922,7 @@ function buildCommish() {
       onClick:()=>initDraft(S.setupDraftRounds||8, S.draftFormat||'snake')
     },"🚀 Start Live Draft"));
   }
+  } // end if(!draftComplete)
   dsBody.appendChild(startCard);
 
   if(currentDraftStatus) {
