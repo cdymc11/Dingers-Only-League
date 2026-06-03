@@ -3327,10 +3327,14 @@ function buildDraft() {
     const hasHBP = myPicksSoFar.some(p=>p.type==="hbp");
     const isLastPick = picksLeft === 1;
     const mustBeHBP = isLastPick && !hasHBP;
+    const mustBeHR = hasHBP; // already have HBP — all remaining picks must be HR
 
-    // If last pick and no HBP yet, force type to HBP
+    // Force correct type
     if(mustBeHBP && S.draftPickType !== "hbp") {
       S.draftPickType = "hbp";
+    }
+    if(mustBeHR && S.draftPickType !== "hr") {
+      S.draftPickType = "hr";
     }
 
     if(S.draftConfirming) {
@@ -3360,13 +3364,20 @@ function buildDraft() {
       },"✕"));
       modal.appendChild(mHdr);
 
-      // HBP required warning banner
+      // Type rule banners
       if(mustBeHBP) {
         modal.appendChild(h("div",{style:{
           background:C.green+"18", border:`1px solid ${C.green}44`,
           borderRadius:"8px", padding:"10px 12px", marginBottom:"14px",
           color:C.green, fontSize:"12px", fontWeight:"700"
         }},"🎯 Last pick — must be HBP."));
+      }
+      if(mustBeHR) {
+        modal.appendChild(h("div",{style:{
+          background:C.red+"18", border:`1px solid ${C.red}44`,
+          borderRadius:"8px", padding:"10px 12px", marginBottom:"14px",
+          color:C.red, fontSize:"12px", fontWeight:"700"
+        }},"⚾ HBP already drafted — this pick must be HR."));
       }
 
       // Player info
@@ -3437,7 +3448,7 @@ function buildDraft() {
           const row = h("div",{class:"row-hover",style:{
             padding:"10px 12px",borderRadius:"8px",background:C.bg,
             cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"
-          },onClick:()=>set({draftConfirming:{player}, draftPickType:mustBeHBP?"hbp":"hr"})});
+          },onClick:()=>set({draftConfirming:{player}, draftPickType:mustBeHBP?"hbp":mustBeHR?"hr":"hr"})});
           row.appendChild(h("div",{},
             h("div",{style:{color:C.text,fontWeight:"600",fontSize:"14px"}},player.name),
             h("div",{style:{color:C.muted,fontSize:"11px",marginTop:"1px"}},`${player.team}${player.position?" · "+player.position:""}`)
@@ -3451,13 +3462,19 @@ function buildDraft() {
       }
       wrap.appendChild(searchCard);
 
-      // Last pick HBP warning on search screen
+      // Type rule banners on search screen
       if(mustBeHBP) {
         wrap.appendChild(h("div",{style:{
           background:C.green+"18", border:`1px solid ${C.green}44`,
           borderRadius:"10px", padding:"12px 14px", marginBottom:"12px",
           color:C.green, fontSize:"13px", fontWeight:"700"
-        }},"🎯 Last pick — must be designated as HBP. Search or select any player below."));
+        }},"🎯 Last pick — must be designated as HBP."));
+      } else if(mustBeHR) {
+        wrap.appendChild(h("div",{style:{
+          background:C.red+"18", border:`1px solid ${C.red}44`,
+          borderRadius:"10px", padding:"12px 14px", marginBottom:"12px",
+          color:C.red, fontSize:"13px", fontWeight:"700"
+        }},"⚾ HBP already drafted — remaining picks must be HR."));
       }
 
       // ── Projection Pool Table ─────────────────────────────────────────
@@ -3499,7 +3516,7 @@ function buildDraft() {
           }});
           if(!taken) {
             row.style.cursor = "pointer";
-            row.addEventListener("click", () => set({draftConfirming:{player:{name:p.name, team:p.team+" ("+p.pos+")", id:null}}, draftPickType:mustBeHBP?"hbp":"hr"}));
+            row.addEventListener("click", () => set({draftConfirming:{player:{name:p.name, team:p.team+" ("+p.pos+")", id:null}}, draftPickType:mustBeHBP?"hbp":mustBeHR?"hr":"hr"}));
             row.addEventListener("mouseover", () => { row.style.background = C.surface; });
             row.addEventListener("mouseout", () => { row.style.background = "transparent"; });
           }
