@@ -3636,11 +3636,15 @@ function buildAuthScreen() {
     card.appendChild(h("button",{
       style:{width:"100%",padding:"13px",borderRadius:"10px",cursor:"pointer",fontWeight:"800",fontSize:"15px",background:C.accent,border:"none",color:"#fff",marginBottom:"10px"},
       onClick:()=>set({authScreen:"signin",authError:""})
-    },"Sign In to League"));
+    },"Sign In"));
     card.appendChild(h("button",{
-      style:{width:"100%",padding:"13px",borderRadius:"10px",cursor:"pointer",fontWeight:"700",fontSize:"15px",background:"transparent",border:`1px solid ${C.accent}`,color:C.accent},
+      style:{width:"100%",padding:"13px",borderRadius:"10px",cursor:"pointer",fontWeight:"700",fontSize:"15px",background:"transparent",border:`1px solid ${C.accent}`,color:C.accent,marginBottom:"8px"},
+      onClick:()=>set({authScreen:"register",authError:""})
+    },"Create Account (Join a League)"));
+    card.appendChild(h("button",{
+      style:{width:"100%",padding:"11px",borderRadius:"10px",cursor:"pointer",fontWeight:"600",fontSize:"13px",background:"transparent",border:`1px solid ${C.border}`,color:C.muted},
       onClick:()=>set({authScreen:"signup",authError:""})
-    },"Create New League"));
+    },"Create New League (Commissioner)"));
   }
 
   // ── Sign in ───────────────────────────────────────────────────────────────
@@ -3673,10 +3677,49 @@ function buildAuthScreen() {
     passInp.addEventListener("keydown", e => { if(e.key==="Enter") signInBtn.click(); });
     card.appendChild(signInBtn);
 
-    const bottomRow = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}});
+    const bottomRow = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}});
     bottomRow.appendChild(h("button",{style:{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:"12px",padding:"0"},onClick:()=>set({authScreen:"landing",authError:""})},"← Back"));
     bottomRow.appendChild(h("button",{style:{background:"none",border:"none",color:C.accent,cursor:"pointer",fontSize:"12px",padding:"0"},onClick:()=>set({authScreen:"forgot",authError:""})},"Forgot password?"));
     card.appendChild(bottomRow);
+    // New here? option — for owners joining an existing league
+    const newHereDiv = h("div",{style:{borderTop:`1px solid ${C.border}`,paddingTop:"12px",textAlign:"center"}});
+    newHereDiv.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"8px"}},"New here? Create an account to join your league."));
+    newHereDiv.appendChild(h("button",{
+      style:{width:"100%",padding:"11px",borderRadius:"10px",cursor:"pointer",fontWeight:"700",fontSize:"14px",background:"transparent",border:`1px solid ${C.accent}`,color:C.accent},
+      onClick:()=>set({authScreen:"register",authError:""})
+    },"Create Account"));
+    card.appendChild(newHereDiv);
+  }
+
+  // ── Register (join existing league) ──────────────────────────────────────
+  else if(S.authScreen === "register") {
+    card.appendChild(h("div",{style:{color:C.text,fontWeight:"800",fontSize:"18px",marginBottom:"6px"}},"Create Account"));
+    card.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",lineHeight:"1.5",marginBottom:"20px"}},"Use the email address your commissioner assigned to your team. You\'ll be auto-joined to your league."));
+    if(S.authError) card.appendChild(h("div",{style:{color:C.red,fontSize:"12px",marginBottom:"12px",padding:"8px 12px",background:C.red+"11",borderRadius:"6px"}},S.authError));
+    const regEmailInp = h("input",{type:"email",placeholder:"Your email address",style:{width:"100%",padding:"11px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",outline:"none",marginBottom:"10px",boxSizing:"border-box"}});
+    const regPassInp = h("input",{type:"password",placeholder:"Choose a password (6+ characters)",style:{width:"100%",padding:"11px 14px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"16px",outline:"none",marginBottom:"16px",boxSizing:"border-box"}});
+    card.appendChild(regEmailInp);
+    card.appendChild(regPassInp);
+    card.appendChild(h("button",{
+      style:{width:"100%",padding:"13px",borderRadius:"10px",cursor:"pointer",fontWeight:"800",fontSize:"15px",background:C.accent,border:"none",color:"#fff",marginBottom:"12px",opacity:S.authLoading?"0.6":"1"},
+      onClick: async () => {
+        const email = regEmailInp.value.trim();
+        const pass = regPassInp.value;
+        if(!email) { set({authError:"Please enter your email."}); return; }
+        if(pass.length < 6) { set({authError:"Password must be at least 6 characters."}); return; }
+        set({authLoading:true, authError:""});
+        try {
+          await createUserWithEmailAndPassword(auth, email, pass);
+          // onAuthStateChanged will fire and find their league automatically
+        } catch(e) {
+          const msg = e.code === "auth/email-already-in-use"
+            ? "An account with this email already exists. Sign in instead."
+            : e.message;
+          set({authLoading:false, authError:msg});
+        }
+      }
+    }, S.authLoading ? "Creating account…" : "Create Account & Join League"));
+    card.appendChild(h("button",{style:{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:"12px",padding:"0"},onClick:()=>set({authScreen:"signin",authError:""})},"← Back to Sign In"));
   }
 
   // ── Sign up (create new league) ───────────────────────────────────────────
