@@ -95,6 +95,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, orderBy, query } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-analytics.js";
 // Note: using modular SDK with experimentalForceLongPolling to avoid eval
 
 // ── Firebase ──────────────────────────────────────────────────────────────────
@@ -103,12 +104,14 @@ const firebaseConfig = {
   authDomain: "dingers-only-league.firebaseapp.com",
   projectId: "dingers-only-league",
   storageBucket: "dingers-only-league.firebasestorage.app",
-  messagingSenderId: "78411772423",
-  appId: "REPLACE_WITH_NEW_APP_ID"
+  messagingSenderId: "103115317135",
+  appId: "1:103115317135:web:3186e848bda05e2ff735fa",
+  measurementId: "G-7JQCJL4QV1"
 };
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 const auth = getAuth(firebaseApp);
+const analytics = getAnalytics(firebaseApp);
 
 // ── Read league ID from URL (?league=XK9M4P) ─────────────────────────────────
 function getLeagueIdFromUrl() {
@@ -442,7 +445,14 @@ let S = {
   draftGenStatus: "",        // status message for code gen
 };
 
-function set(partial) { S = {...S, ...partial}; render(); }
+function set(partial) {
+  // Log tab changes to Analytics
+  if(partial.tab && partial.tab !== S.tab) {
+    try { logEvent(analytics, "page_view", {page_title: partial.tab}); } catch(e) {}
+  }
+  S = {...S, ...partial};
+  render();
+}
 
 // Correct known misspellings from old Firebase data
 const NAME_CORRECTIONS = {
@@ -3156,6 +3166,7 @@ async function commitPick(player, type) {
     await setDoc(leagueRef, { draftState: update }, { merge: true });
     // If draft complete, write rosters to Firebase
     if(isDone) await writeDraftRostersToFirebase(newPicks);
+    try { logEvent(analytics, "draft_pick", {player: player.name, type, round: newPick.round}); } catch(e) {}
     set({draftConfirming:null, draftSearch:"", draftSearchResults:[], draftPickType:"hr"});
   } catch(e) {
     console.error("commitPick error:", e);
@@ -3746,6 +3757,7 @@ function buildAuthScreen() {
         set({authLoading:true, authError:""});
         try {
           await signInWithEmailAndPassword(auth, email, pass);
+          try { logEvent(analytics, "login"); } catch(e) {}
           // onAuthStateChanged handles the rest
         } catch(e) {
           const msg = e.code === "auth/user-not-found" || e.code === "auth/wrong-password" || e.code === "auth/invalid-credential"
@@ -3832,6 +3844,7 @@ function buildAuthScreen() {
           const cred = await createUserWithEmailAndPassword(auth, email, pass);
           const startDate = startDateInp.value || null;
           const leagueId = await createLeague(name, S.setupTeamCount||10, email, cred.user.uid, startDate);
+          try { logEvent(analytics, "league_created", {leagueId}); } catch(e) {}
           set({authLoading:false, leagueId, isCommish:true, commishUnlocked:true, onboardingStep:1});
           // onAuthStateChanged + onSnapshot handle the rest
         } catch(e) {
@@ -4157,6 +4170,23 @@ function render() {
   }
   else if(S.tab==="myteam") body.appendChild(buildMyTeam());
   app.appendChild(body);
+
+  // Feedback button — fixed position, always visible
+  const fbBtn = h("div",{style:{
+    position:"fixed", bottom:"16px", right:"16px", zIndex:"500"
+  }});
+  fbBtn.appendChild(h("a",{
+    href:`mailto:cdymc11@gmail.com?subject=${encodeURIComponent("Dingers Only Feedback")}&body=${encodeURIComponent("Hey Cody,\n\nHere's my feedback on Dingers Only:\n\n")}`,
+    style:{
+      display:"flex", alignItems:"center", gap:"6px",
+      padding:"8px 14px", borderRadius:"20px",
+      background:C.accent, color:"#fff",
+      fontSize:"12px", fontWeight:"700",
+      textDecoration:"none", boxShadow:`0 4px 12px ${C.accent}44`,
+      opacity:"0.85"
+    }
+  },"💬 Feedback"));
+  app.appendChild(fbBtn);
 
   if(S.selectedLogo !== null) app.appendChild(buildLogoModal());
   if(S.hrCelebration) app.appendChild(buildHRCelebration());
