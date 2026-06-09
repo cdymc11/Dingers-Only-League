@@ -4064,6 +4064,8 @@ function render() {
   if(S.onboardingStep > 0 && S.isCommish) app.appendChild(buildOnboarding());
 }
 
+const PASS = "beta";
+
 function handleLogin(val) {
   const v = (val !== undefined ? val : S.commishInput).trim();
   if(v===PASS){ set({commishUnlocked:true,showCommish:true,pwError:false,cpLocal:JSON.parse(JSON.stringify(S.teams)),cpActive:0}); }
