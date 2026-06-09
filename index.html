@@ -397,7 +397,7 @@ let S = {
   // history backfill
   setupDraftRounds: 8,
   draftFormat: "snake",   // "snake" | "linear"
-  commishSections: {league:false, roster:false, draft:false, rules:false}, // open/closed
+  commishSections: {league:false, roster:false, setup:false}, // open/closed
   // draft
   draftState: null,          // live draft state from Firebase
   draftCodes: null,          // { teamId: code } map
@@ -2520,10 +2520,21 @@ function buildCommish() {
   // SECTION 4 — DRAFT MANAGEMENT
   // ════════════════════════════════════════════════════════════════════════
   // ── Invite Section ─────────────────────────────────────────────────────────
-  const draftSection = section("Draft Management","🎯","draft"); const dsBody = draftSection._body;
-  const draftComplete = S.draftState?.status === "active" || S.draftState?.status === "complete";
-  if(draftComplete) {
-    dsBody.appendChild(h("div",{style:{
+  // ════════════════════════════════════════════════════════════════════════
+  // SECTION — LEAGUE & DRAFT SETUP (merged)
+  // ════════════════════════════════════════════════════════════════════════
+  const setupSection = section("League & Draft Setup","🎯","setup"); const setupBody = setupSection._body;
+
+  // Single lock notice at top
+  const draftStarted = S.draftState?.status === "active" || S.draftState?.status === "complete";
+  if(draftStarted) {
+    setupBody.appendChild(h("div",{style:{background:`${C.accent}11`,border:`1px solid ${C.accent}33`,borderRadius:"8px",padding:"10px 14px",marginBottom:"16px",fontSize:"12px",color:C.accent}},"🔒 Settings are locked once the draft starts. Reset the league to make changes."));
+  }
+
+
+  // draftStarted = draftStarted (defined above)
+  if(draftStarted) {
+    setupBody.appendChild(h("div",{style:{
       background:`${C.accent}11`,border:`1px solid ${C.accent}33`,
       borderRadius:"8px",padding:"12px 14px",marginBottom:"12px"
     }},
@@ -2531,7 +2542,7 @@ function buildCommish() {
       h("div",{style:{color:C.muted,fontSize:"12px"}},"Draft settings cannot be changed after the draft. Reset the league to start over.")
     ));
   } else {
-    dsBody.appendChild(note("Run the live snake draft. Make sure all owners have signed in, then set your options and start the draft. Draft order is randomized automatically."));
+    setupBody.appendChild(note("Run the live snake draft. Make sure all owners have signed in, then set your options and start the draft. Draft order is randomized automatically."));
   }
 
   // Start draft (Step 1 now — codes removed, email login replaces them)
@@ -2562,7 +2573,7 @@ function buildCommish() {
     }
     startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"10px",marginTop:"6px"}},"Start date is locked. Reset league to change it."));
   } else {
-  if(!draftComplete) {
+  if(!draftStarted) {
     startCard.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"14px"}},"Once everyone has signed in and claimed their team, set the scoring start date, format, and rounds, then start the draft. Draft order is randomized automatically."));
 
     // ── Scoring start date ──────────────────────────────────────────────────
@@ -2655,11 +2666,11 @@ function buildCommish() {
       onClick:()=>initDraft(S.setupDraftRounds||8, S.draftFormat||'snake')
     },"🚀 Start Live Draft"));
   }
-  } // end if(!draftComplete)
-  dsBody.appendChild(startCard);
+  } // end if(!draftStarted)
+  setupBody.appendChild(startCard);
 
   if(currentDraftStatus) {
-    dsBody.appendChild(h("button",{
+    setupBody.appendChild(h("button",{
       style:{padding:"8px 16px",borderRadius:"7px",cursor:"pointer",fontWeight:"700",fontSize:"12px",background:`${C.red}18`,border:`1px solid ${C.red}44`,color:C.red},
       onClick:async()=>{
         if(!confirm("Reset the entire draft? This cannot be undone.")) return;
@@ -2668,13 +2679,9 @@ function buildCommish() {
       }
     },"⚠️ Reset Draft"));
   }
-  panel.appendChild(draftSection);
+  
 
-  // ════════════════════════════════════════════════════════════════════════
-  // SECTION — LEAGUE RULES
-  // ════════════════════════════════════════════════════════════════════════
-  const rulesSection = section("League Rules & Prizes","📖","rules"); const rbBody = rulesSection._body;
-  rbBody.appendChild(note("Edit your league rules, prizes, and punishments. Changes are visible to all owners in the Rules tab."));
+  setupBody.appendChild(note("Edit your league rules, prizes, and punishments. Changes are visible to all owners in the Rules tab."));
 
   const settings = S.leagueSettings || {};
   const rulesSt = {
@@ -2691,7 +2698,7 @@ function buildCommish() {
   };
 
   // ── Scoring ────────────────────────────────────────────────────────────────
-  rbBody.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"⚾ Scoring"));
+  setupBody.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"⚾ Scoring"));
   const scoringLocked = S.draftState?.status === "active" || S.draftState?.status === "complete";
   const scoreWrap = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${scoringLocked?C.border:C.border}`,marginBottom:"16px"}});
 
@@ -2716,10 +2723,10 @@ function buildCommish() {
 
   scoreWrap.appendChild(makeScoreRow("Home Runs = ___ point(s) each", "hrPts", rulesSt.hrPts));
   scoreWrap.appendChild(makeScoreRow("Hit By Pitches = ___ point(s) each", "hbpPts", rulesSt.hbpPts));
-  rbBody.appendChild(scoreWrap);
+  setupBody.appendChild(scoreWrap);
 
   // ── Transactions ──────────────────────────────────────────────────────────
-  rbBody.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"🔄 Transactions"));
+  setupBody.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"🔄 Transactions"));
   const txWrap = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"16px"}});
   const rosterSize = (S.teams[0]?.players||[]).length || 8;
   const txInfo1 = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}});
@@ -2745,11 +2752,11 @@ function buildCommish() {
   dlRow.appendChild(dlInp);
   txWrap.appendChild(dlRow);
   txWrap.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginTop:"4px",marginBottom:"4px"}},"Leave blank for no deadline"));
-  rbBody.appendChild(txWrap);
+  setupBody.appendChild(txWrap);
 
   // ── Loser positions ───────────────────────────────────────────────────────
-  const draftStarted = S.draftState?.status === "active" || S.draftState?.status === "complete";
-  rbBody.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"💀 Who Loses?"));
+  // draftStarted already defined above
+  setupBody.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"💀 Who Loses?"));
   const loserWrap = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"16px"}});
   if(draftStarted) {
     loserWrap.appendChild(h("div",{style:{background:`${C.accent}11`,border:`1px solid ${C.accent}33`,borderRadius:"6px",padding:"8px 10px",marginBottom:"10px",fontSize:"12px",color:C.accent}},"🔒 Locked once draft starts. Reset league to change."));
@@ -2790,15 +2797,15 @@ function buildCommish() {
   };
   renderLoserList();
   loserWrap.appendChild(loserList);
-  rbBody.appendChild(loserWrap);
+  setupBody.appendChild(loserWrap);
 
   // ── Free-form sections ────────────────────────────────────────────────────
   [{key:"prize",emoji:"🏆",label:"Prize"},{key:"punishment",emoji:"💀",label:"Punishment"},{key:"tiebreaker",emoji:"⚔️",label:"Tiebreaker"}].forEach(sec => {
-    rbBody.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},`${sec.emoji} ${sec.label}`));
+    setupBody.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},`${sec.emoji} ${sec.label}`));
     const ta = h("textarea",{style:{width:"100%",padding:"10px 12px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"13px",lineHeight:"1.6",resize:"vertical",outline:"none",minHeight:"80px",boxSizing:"border-box",marginBottom:"14px"}});
     ta.value = freeText[sec.key];
     ta.addEventListener("blur", e => { freeText[sec.key] = e.target.value; });
-    rbBody.appendChild(ta);
+    setupBody.appendChild(ta);
   });
 
   // ── Save ──────────────────────────────────────────────────────────────────
@@ -2813,8 +2820,14 @@ function buildCommish() {
     }
   }
   },"💾 Save Rules");
-  rbBody.appendChild(rulesSaveBtn);
-  panel.appendChild(rulesSection);
+  setupBody.appendChild(rulesSaveBtn);
+  
+  panel.appendChild(setupSection);
+
+  // ════════════════════════════════════════════════════════════════════════
+  // SECTION — LEAGUE RULES
+  // ════════════════════════════════════════════════════════════════════════
+
 
   overlay.appendChild(panel);
   return overlay;
@@ -3853,7 +3866,7 @@ function buildOnboarding() {
     {
       icon:"🎯",
       title:"Draft Day",
-      body:"When everyone's signed in and ready, go to Manage League → Draft Management. Pick your format (Snake or Linear), set the number of rounds, and start the live draft. Draft order is randomized automatically so no team has a first-pick advantage every year.",
+      body:"When everyone's signed in and ready, go to Manage League → League & Draft Setup. Pick your format (Snake or Linear), set the number of rounds, and start the live draft. Draft order is randomized automatically so no team has a first-pick advantage every year.",
     },
     {
       icon:"📊",
