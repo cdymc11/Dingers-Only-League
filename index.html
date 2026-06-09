@@ -127,11 +127,9 @@ function setLeagueIdInUrl(id) {
 
 // ── Dynamic Firebase refs — set once leagueId is known ───────────────────────
 let leagueRef = null;
-let historyCol = null;
 let transactionsCol = null;
 function initFirebaseRefs(leagueId) {
   leagueRef = doc(db, "leagues", leagueId);
-  historyCol = collection(db, "leagues", leagueId, "history");
   transactionsCol = collection(db, "leagues", leagueId, "transactions");
 }
 // Initialise with URL param if present (handles page reload)
@@ -159,38 +157,7 @@ async function saveHistorySnapshot(label) {
 }
 
 // Load all history snapshots from Firebase
-async function loadHistory() {
-  set({historyLoading: true});
-  try {
-    const q = query(historyCol, orderBy("date","asc"));
-    const snap = await getDocs(q);
-    const weeks = snap.docs.map(d => d.data());
-    set({historyWeeks: weeks, historyLoading: false, historyWeekIdx: weeks.length - 1});
-  } catch(e) {
-    set({historyWeeks: [], historyLoading: false});
-  }
-}
 
-// Auto-snapshot every Monday — checks once on load
-function maybeAutoSnapshot() {
-  const now = new Date();
-  // Daily snapshot — runs every day
-  const todayStr = now.toISOString().split("T")[0];
-  const lastSnap = localStorage.getItem("lastHistorySnap");
-  if(lastSnap === todayStr) return; // already snapped today
-  // Wait until stats are loaded (give it 5s after firebase sync)
-  setTimeout(async () => {
-    if(S.teams && S.teams.some(t => score(t) > 0)) {
-      const ok = await saveHistorySnapshot();
-      if(ok) localStorage.setItem("lastHistorySnap", todayStr);
-    }
-  }, 5000);
-}
-
-// ── Constants ─────────────────────────────────────────────────────────────────
-const PASS = "beta"; // legacy fallback
-
-// ── Generate unique league ID ─────────────────────────────────────────────────
 function generateLeagueId() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   return Array.from({length:6}, () => chars[Math.floor(Math.random()*chars.length)]).join("");
@@ -389,7 +356,7 @@ let S = {
   leagueId: urlLeagueId || null,    // current league ID
   seasonStartDate: null,            // optional league start date (YYYY-MM-DD)
   leagueRules: null,                // custom rules set by commissioner
-  leagueSettings: null,             // { hrPts, hbpPts, maxTransactions, txDeadline }
+  leagueSettings: null,             // { hrPts, hbpPts, maxTransactions, txDeadline, loserPositions }
   currentUser: null,     // Firebase Auth user object
   authScreen: urlLeagueId ? "signin" : "landing", // landing|signin|signup|forgot
   authEmail: "", authPassword: "", authError: "", authLoading: false,
@@ -428,7 +395,6 @@ let S = {
   // debug
   dbResults: [], dbRunning: false, dbDone: false,
   // history backfill
-  backfillRunning: false, backfillStatus: "", backfillDone: false,
   setupDraftRounds: 8,
   draftFormat: "snake",   // "snake" | "linear"
   commishSections: {league:false, roster:false, draft:false, rules:false}, // open/closed
@@ -722,16 +688,16 @@ function buildRankInfo(scores) {
   if(n === 0) return result;
   const distinct = [...new Set(scores)].sort((a,b)=>b-a);
   const highest = distinct[0];
-  const lowest = distinct[distinct.length - 1];
-  const secondDistinct = distinct.length > 1 ? distinct[1] : null;
+  // Get loser positions from settings (1-indexed), default to last place only
+  const loserPositions = S.leagueSettings?.loserPositions || [n];
   scores.forEach((s, i) => {
+    const rank1 = distinct.indexOf(s) + 1; // 1-indexed rank
     if(s === highest) {
       result[i] = { icon: "🥇", isSpecial: true };
-    } else if(s === lowest || (secondDistinct !== null && s === secondDistinct)) {
+    } else if(loserPositions.includes(rank1)) {
       result[i] = { icon: "💀", isSpecial: true };
     } else {
-      const rank = distinct.indexOf(s) + 1;
-      result[i] = { icon: `#${rank}`, isSpecial: false };
+      result[i] = { icon: `#${rank1}`, isSpecial: false };
     }
   });
   return result;
@@ -1482,250 +1448,7 @@ async function loadScores() {
 }
 
 // ── Weekly Recap ──────────────────────────────────────────────────────────────
-async function backfillHistory() {
-  set({backfillRunning:true, backfillStatus:"Starting backfill…", backfillDone:false});
-  const season = new Date().getFullYear();
-  const seasonStart = new Date("2026-03-26");
-  const yesterday = new Date(); yesterday.setDate(yesterday.getDate()-1);
 
-  // Build list of dates to backfill
-  const dates = [];
-  for(let d = new Date(seasonStart); d <= yesterday; d.setDate(d.getDate()+1)) {
-    dates.push(d.toISOString().split("T")[0]);
-  }
-
-  // Check which dates already have snapshots
-  let existingDates = new Set();
-  try {
-    const q = query(historyCol, orderBy("date","asc"));
-    const snap = await getDocs(q);
-    snap.docs.forEach(d => existingDates.add(d.data().date));
-  } catch(e) {}
-
-  const missing = dates.filter(d => !existingDates.has(d));
-  set({backfillStatus:`Found ${missing.length} dates to backfill…`});
-
-  if(missing.length === 0) {
-    set({backfillRunning:false, backfillStatus:"Already up to date!", backfillDone:true});
-    setTimeout(()=>set({backfillStatus:"",backfillDone:false}),4000);
-    return;
-  }
-
-  let done = 0;
-  for(const dateStr of missing) {
-    try {
-      set({backfillStatus:`Fetching ${dateStr} (${done+1}/${missing.length})…`});
-      // Get cumulative stats for all players up to this date
-      const teamScores = S.teams.map(t=>({id:t.id, name:t.name, owner:t.owner||"", score:0}));
-
-      for(const team of S.teams) {
-        const ts = teamScores.find(t=>t.id===team.id);
-        for(const p of (team.players||[])) {
-          if(!p.name?.trim()) continue;
-          const playerId = PLAYER_IDS[p.name]; if(!playerId) continue;
-          // Skip players added after this date
-          if(p.addedAt && p.addedAt > dateStr) continue;
-          try {
-            const r = await fetch(`https://statsapi.mlb.com/api/v1/people/${playerId}/stats?stats=gameLog&group=hitting&season=${season}&startDate=2026-03-26&endDate=${dateStr}&sportId=1`);
-            if(!r.ok) continue;
-            const d = await r.json();
-            const splits = d.stats?.[0]?.splits||[];
-            let hr=0, hbp=0;
-            splits.forEach(s=>{ hr+=s.stat?.homeRuns??0; hbp+=s.stat?.hitByPitch??0; });
-            // Apply baseline for added players
-            if(p.addedAt && p.hrBaseline!==null && p.type==="hr") hr = Math.max(0, hr - p.hrBaseline);
-            if(p.addedAt && p.hbpBaseline!==null && p.type==="hbp") hbp = Math.max(0, hbp - p.hbpBaseline);
-            ts.score += p.type==="hr" ? hr : hbp;
-          } catch(e){continue;}
-        }
-      }
-
-      const standings = [...teamScores].sort((a,b)=>b.score-a.score);
-      const label = new Date(dateStr+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"});
-      await setDoc(doc(db,"history",dateStr), {label, date:dateStr, standings});
-      done++;
-    } catch(e){ continue; }
-  }
-
-  set({backfillRunning:false, backfillStatus:`Done! ${done} snapshots saved.`, backfillDone:true});
-  loadHistory();
-  setTimeout(()=>set({backfillStatus:"",backfillDone:false}),5000);
-}
-
-
-function buildHistory() {
-  if(S.historyWeeks === null && !S.historyLoading) loadHistory();
-
-  const wrap = h("div",{style:{animation:"fadeIn 0.4s ease"}});
-  wrap.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"4px"}},
-    h("span",{style:{fontSize:"20px"}},"📈"),
-    h("h3",{style:{margin:"0",fontSize:"13px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.12em",color:C.muted}},"Season History")
-  ));
-  wrap.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",marginBottom:"20px"}},"Daily standings · drag to replay the season"));
-
-  if(S.historyLoading) { wrap.appendChild(spinner("Loading history…")); return wrap; }
-
-  if(!S.historyWeeks || S.historyWeeks.length === 0) {
-    wrap.appendChild(h("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:"12px",padding:"32px",textAlign:"center"}},
-      h("div",{style:{fontSize:"32px",marginBottom:"8px"}},"📭"),
-      h("div",{style:{color:C.text,fontWeight:"700",fontSize:"16px",marginBottom:"6px"}},"No snapshots yet"),
-      h("div",{style:{color:C.muted,fontSize:"13px"}},"Use the Backfill button in the Commissioner Panel to load historical data.")
-    ));
-    return wrap;
-  }
-
-  const weeks = S.historyWeeks;
-  const teamIds = [...new Set(weeks.flatMap(w=>w.standings.map(t=>t.id)))].sort();
-  const teamNames = {};
-  weeks.forEach(w=>w.standings.forEach(t=>{ teamNames[t.id]=t.name; }));
-
-  // Colors and dash patterns per team id
-  const COLORS = ["#e8c84a","#e84a4a","#4ae89a","#6ab0ff","#ff8c42","#c084fc","#f472b6","#94a3b8"];
-  const DASHES = [[],[6,3],[2,2],[8,4,2,4],[4,4],[2,4],[10,3],[6,2,2,2]];
-  const colorMap = {}, dashMap = {};
-  teamIds.forEach((id,i)=>{ colorMap[id]=COLORS[i%COLORS.length]; dashMap[id]=DASHES[i%DASHES.length]; });
-
-  // Build per-team score arrays aligned to dates
-  const allDates = weeks.map(w=>w.date);
-  const allLabels = weeks.map(w=>w.label||w.date);
-  const scoresByTeam = {};
-  teamIds.forEach(id=>{
-    scoresByTeam[id] = weeks.map(w=>{
-      const entry = w.standings.find(t=>t.id===id);
-      return entry ? entry.score : null;
-    });
-  });
-
-  // Slider state
-  let sliderIdx = weeks.length - 1;
-
-  // Chart container
-  const chartWrap = h("div",{style:{position:"relative",width:"100%",height:"360px",marginBottom:"8px"}});
-  const canvas = h("canvas",{role:"img","aria-label":"Line chart of team scores over the season"});
-  chartWrap.appendChild(canvas);
-  wrap.appendChild(chartWrap);
-
-  // Slider
-  const sliderRow = h("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"12px"}});
-  const slider = h("input");
-  slider.type = "range"; slider.min = "0"; slider.max = String(weeks.length-1);
-  slider.value = String(sliderIdx); slider.step = "1";
-  Object.assign(slider.style, {flex:"1"});
-  const sliderLabel = h("span",{style:{fontSize:"11px",color:C.muted,minWidth:"52px",textAlign:"right"}},allLabels[sliderIdx]);
-  sliderRow.append(
-    h("span",{style:{fontSize:"10px",color:C.muted}},allLabels[0]),
-    slider,
-    sliderLabel
-  );
-  wrap.appendChild(sliderRow);
-
-  // Legend
-  const legend = h("div",{style:{display:"flex",flexWrap:"wrap",gap:"6px 12px",marginBottom:"16px"}});
-  teamIds.forEach(id=>{
-    const item = h("div",{style:{display:"flex",alignItems:"center",gap:"5px"}});
-    item.appendChild(h("div",{style:{width:"8px",height:"8px",borderRadius:"50%",background:colorMap[id],flexShrink:"0"}}));
-    item.appendChild(h("span",{style:{fontSize:"10px",color:C.muted}},teamNames[id]||`Team ${id}`));
-    legend.appendChild(item);
-  });
-  wrap.appendChild(legend);
-
-  // Build Chart.js after DOM is appended
-  setTimeout(()=>{
-    if(!window.Chart) return;
-
-    const WINDOW = 7;
-
-    const buildDatasets = (upToIdx) => {
-      const startIdx = Math.max(0, upToIdx - WINDOW + 1);
-      return teamIds.map(id=>({
-        label: teamNames[id]||`Team ${id}`,
-        data: scoresByTeam[id].slice(startIdx, upToIdx+1).map((v,i)=>({x:allLabels[startIdx+i],y:v})),
-        borderColor: colorMap[id],
-        backgroundColor: colorMap[id]+"22",
-        borderWidth: 2,
-        borderDash: dashMap[id],
-        pointRadius: 0,
-        pointHoverRadius: 4,
-        pointHoverBackgroundColor: colorMap[id],
-        tension: 0.3,
-        spanGaps: true,
-      }));
-    };
-
-    const getYRange = (upToIdx) => {
-      const startIdx = Math.max(0, upToIdx - WINDOW + 1);
-      const vals = teamIds.flatMap(id=>scoresByTeam[id].slice(startIdx, upToIdx+1).filter(v=>v!==null));
-      const minV = Math.max(0, Math.min(...vals) - 3);
-      const maxV = Math.max(...vals) + 3;
-      return {min: Math.floor(minV), max: Math.ceil(maxV)};
-    };
-
-    const chart = new window.Chart(canvas, {
-      type: "line",
-      data: { datasets: buildDatasets(sliderIdx) },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: {duration: 200},
-        interaction: {mode:"index", intersect:false},
-        plugins: {
-          legend: {display:false},
-          tooltip: {
-            backgroundColor: C.card,
-            borderColor: C.border,
-            borderWidth: 1,
-            titleColor: C.muted,
-            bodyColor: C.text,
-            callbacks: {
-              title: (items) => items[0]?.label||"",
-              label: (item) => ` ${item.dataset.label}: ${item.raw.y ?? "—"}`
-            }
-          }
-        },
-        scales: {
-          x: {
-            type: "category",
-            grid: {color:"#1e2a3a"},
-            ticks: {color:C.muted, font:{size:10}, maxTicksLimit:7, autoSkip:true}
-          },
-          y: {
-            ...getYRange(sliderIdx),
-            grid: {color:"#1e2a3a"},
-            ticks: {color:C.muted, font:{size:10}, stepSize:5}
-          }
-        }
-      }
-    });
-
-    slider.addEventListener("input", ()=>{
-      sliderIdx = parseInt(slider.value);
-      sliderLabel.textContent = allLabels[sliderIdx];
-      const range = getYRange(sliderIdx);
-      chart.data.datasets = buildDatasets(sliderIdx);
-      chart.options.scales.y.min = range.min;
-      chart.options.scales.y.max = range.max;
-      chart.update();
-    });
-  }, 0);
-
-  // Commission save button
-  if(S.commishUnlocked) {
-    wrap.appendChild(h("button",{
-      style:{width:"100%",padding:"10px",background:"transparent",border:`1px solid ${C.border}`,borderRadius:"8px",color:C.muted,cursor:"pointer",fontSize:"13px"},
-      onClick:async(e)=>{
-        const btn=e.target; btn.textContent="Saving…"; btn.disabled=true;
-        const ok=await saveHistorySnapshot(new Date().toLocaleDateString("en-US",{month:"short",day:"numeric"}));
-        if(ok){btn.textContent="✅ Saved!"; loadHistory();}
-        else{btn.textContent="❌ Failed"; btn.disabled=false;}
-      }
-    },"💾 Save Snapshot Now"));
-  }
-
-  return wrap;
-}
-
-
-// ── Rules ─────────────────────────────────────────────────────────────────────
 function buildRules() {
   // All-Star Game: July 14, 2026 @ 8:00 PM ET = midnight UTC July 15
   const allStarDate = new Date("2026-07-14T20:00:00-04:00");
@@ -2798,7 +2521,7 @@ function buildCommish() {
   // ════════════════════════════════════════════════════════════════════════
   // ── Invite Section ─────────────────────────────────────────────────────────
   const draftSection = section("Draft Management","🎯","draft"); const dsBody = draftSection._body;
-  const draftComplete = S.draftState?.status === "complete";
+  const draftComplete = S.draftState?.status === "active" || S.draftState?.status === "complete";
   if(draftComplete) {
     dsBody.appendChild(h("div",{style:{
       background:`${C.accent}11`,border:`1px solid ${C.accent}33`,
@@ -2969,7 +2692,7 @@ function buildCommish() {
 
   // ── Scoring ────────────────────────────────────────────────────────────────
   rbBody.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"⚾ Scoring"));
-  const scoringLocked = S.draftState?.status === "complete";
+  const scoringLocked = S.draftState?.status === "active" || S.draftState?.status === "complete";
   const scoreWrap = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${scoringLocked?C.border:C.border}`,marginBottom:"16px"}});
 
   // Lock notice
@@ -3023,6 +2746,51 @@ function buildCommish() {
   txWrap.appendChild(dlRow);
   txWrap.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginTop:"4px",marginBottom:"4px"}},"Leave blank for no deadline"));
   rbBody.appendChild(txWrap);
+
+  // ── Loser positions ───────────────────────────────────────────────────────
+  const draftStarted = S.draftState?.status === "active" || S.draftState?.status === "complete";
+  rbBody.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"💀 Who Loses?"));
+  const loserWrap = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"16px"}});
+  if(draftStarted) {
+    loserWrap.appendChild(h("div",{style:{background:`${C.accent}11`,border:`1px solid ${C.accent}33`,borderRadius:"6px",padding:"8px 10px",marginBottom:"10px",fontSize:"12px",color:C.accent}},"🔒 Locked once draft starts. Reset league to change."));
+  }
+  const numTeams = S.teams.length || 10;
+  const positionOptions = Array.from({length:numTeams},(_,i)=>i+1);
+  const ordinal = n => n===1?"1st":n===2?"2nd":n===3?"3rd":`${n}th`;
+  let loserPositions = [...(rulesSt.loserPositions || [numTeams])];
+
+  const loserList = h("div",{});
+  const renderLoserList = () => {
+    loserList.innerHTML = "";
+    loserPositions.forEach((pos, idx) => {
+      const row = h("div",{style:{display:"flex",gap:"8px",alignItems:"center",marginBottom:"8px"}});
+      const sel = h("select",{style:{flex:"1",padding:"7px 10px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.text,fontSize:"13px",outline:"none",opacity:draftStarted?"0.6":"1"}});
+      sel.disabled = draftStarted;
+      positionOptions.forEach(p => {
+        const opt = h("option",{value:String(p)},`${ordinal(p)} place`);
+        if(p === pos) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener("change", e => { loserPositions[idx] = parseInt(e.target.value); rulesSt.loserPositions = [...loserPositions]; });
+      row.appendChild(sel);
+      if(!draftStarted) {
+        row.appendChild(h("button",{
+          style:{padding:"5px 10px",borderRadius:"6px",cursor:"pointer",background:`${C.red}18`,border:`1px solid ${C.red}44`,color:C.red,fontSize:"12px"},
+          onClick:()=>{ loserPositions.splice(idx,1); rulesSt.loserPositions=[...loserPositions]; renderLoserList(); }
+        },"✕"));
+      }
+      loserList.appendChild(row);
+    });
+    if(!draftStarted && loserPositions.length < 3) {
+      loserList.appendChild(h("button",{
+        style:{padding:"5px 12px",borderRadius:"6px",cursor:"pointer",fontWeight:"600",fontSize:"12px",background:`${C.green}18`,border:`1px solid ${C.green}44`,color:C.green},
+        onClick:()=>{ loserPositions.push(numTeams); rulesSt.loserPositions=[...loserPositions]; renderLoserList(); }
+      },"+ Add another loser"));
+    }
+  };
+  renderLoserList();
+  loserWrap.appendChild(loserList);
+  rbBody.appendChild(loserWrap);
 
   // ── Free-form sections ────────────────────────────────────────────────────
   [{key:"prize",emoji:"🏆",label:"Prize"},{key:"punishment",emoji:"💀",label:"Punishment"},{key:"tiebreaker",emoji:"⚔️",label:"Tiebreaker"}].forEach(sec => {
@@ -4236,7 +4004,6 @@ function render() {
     {id:"projected",label:"🔮 Projected"},
     {id:"scores",label:"⚾ Scores"},
     {id:"recent",label:"📅 Recent"},
-    {id:"history",label:"📈 History"},
     {id:"rules",label:"📖 Rules"},
     ...(showDraftTab ? [{id:"draft",label:"🎯 Draft"}] : []),
   ];
@@ -4257,7 +4024,6 @@ function render() {
 
   else if(S.tab==="scores") body.appendChild(buildScores());
   else if(S.tab==="recent") body.appendChild(buildRecent());
-  else if(S.tab==="history") body.appendChild(buildHistory());
   else if(S.tab==="rules") body.appendChild(buildRules());
   else if(S.tab==="debug") body.appendChild(buildDebug());
   else if(S.tab==="draft") {
@@ -4367,7 +4133,6 @@ function startLeagueListener(leagueId, user) {
         myTeamId: autoMyTeamId !== null ? autoMyTeamId : S.myTeamId,
         draftMyTeamId: autoMyTeamId !== null ? autoMyTeamId : S.draftMyTeamId,
       });
-      maybeAutoSnapshot();
     });
   });
 }
@@ -4429,7 +4194,7 @@ onAuthStateChanged(auth, (user) => {
   set({currentUser:user});
   loadLeague(user);
 });
-setInterval(() => { if(S.tab === "rules") render(); }, 60000);
+
 
 const _splash = document.getElementById("splash-screen");
 if(_splash) {
