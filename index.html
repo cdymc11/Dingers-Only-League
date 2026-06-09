@@ -386,6 +386,7 @@ let S = {
   leagueSetup: false, // true when league has been configured
   leagueId: urlLeagueId || null,    // current league ID
   seasonStartDate: null,            // optional league start date (YYYY-MM-DD)
+  leagueRules: null,                // custom rules set by commissioner
   currentUser: null,     // Firebase Auth user object
   authScreen: urlLeagueId ? "signin" : "landing", // landing|signin|signup|forgot
   authEmail: "", authPassword: "", authError: "", authLoading: false,
@@ -427,7 +428,7 @@ let S = {
   backfillRunning: false, backfillStatus: "", backfillDone: false,
   setupDraftRounds: 8,
   draftFormat: "snake",   // "snake" | "linear"
-  commishSections: {league:false, roster:false, draft:false}, // open/closed
+  commishSections: {league:false, roster:false, draft:false, rules:false}, // open/closed
   // draft
   draftState: null,          // live draft state from Firebase
   draftCodes: null,          // { teamId: code } map
@@ -1765,32 +1766,20 @@ function buildRules() {
     return card;
   };
 
-  wrap.appendChild(section("📋","Format",[
-    {num:"1", text:"Draft 8 players — no bench, no active roster management. You live with injury and suspension luck."},
-    {num:"2", text:"1 of your 8 picks is designated as your HBP player. Their HRs do not count toward your team total."},
-    {num:"3", text:"Scoring: Home Runs + Hit By Pitches = Total Points."},
-  ]));
-
-  wrap.appendChild(section("🔄","Transactions",[
-    {num:"1", text:"You are allowed 1 roster move (add/drop) anytime before the All-Star Game first pitch (July 14 @ 8:00 PM ET)."},
-    {num:"2", text:"After acquisition, you only collect the new player's HRs or HBPs from that point forward. Stats before the add date do not count."},
-    {num:"3", text:"The All-Star Game first pitch is the hard trade deadline. No moves after that."},
-  ]));
-
-  wrap.appendChild(section("🏆","Prize",[
-    {num:"🥇", text:"League splits the cost of a MLB jersey for the winner. Winner gets a jersey of a player from their fantasy team with a custom patch."},
-  ]));
-
-  wrap.appendChild(section("💀","Punishment — 2nd & Last Place",[
-    {num:"⚠️", text:"Both 2nd place AND last place lose. Each loser gets their choice of punishment:"},
-    {num:"1", text:"The 9-9-9 Challenge — 9 beers (108oz), 9 hot dogs, in 9 innings of baseball at a live MLB game the upcoming year."},
-    {num:"2", text:"Run in an organized 10k race the upcoming year."},
-  ]));
-
-  wrap.appendChild(section("⚔️","Tiebreaker",[
-    {num:"1", text:"Head-to-head Home Run Derby at a softball field. Must be pitched by another human."},
-    {num:"2", text:"+3 HR bonus if your dad pitches for you."},
-  ]));
+  // Use dynamic rules from Firebase, fall back to defaults
+  const RULES_DEFAULTS = {"format": ["Draft 8 players — no bench, no active roster management. You live with injury and suspension luck.", "1 of your 8 picks is designated as your HBP player. Their HRs do not count toward your team total.", "Scoring: Home Runs + Hit By Pitches = Total Points."], "transactions": ["You are allowed 1 roster move (add/drop) anytime before the All-Star Game first pitch (July 14 @ 8:00 PM ET).", "After acquisition, you only collect the new player's HRs or HBPs from that point forward. Stats before the add date do not count.", "The All-Star Game first pitch is the hard trade deadline. No moves after that."], "prize": ["League splits the cost of a MLB jersey for the winner. Winner gets a jersey of a player from their fantasy team with a custom patch."], "punishment": ["Both 2nd place AND last place lose. Each loser gets their choice of punishment:", "The 9-9-9 Challenge — 9 beers (108oz), 9 hot dogs, in 9 innings of baseball at a live MLB game the upcoming year.", "Run in an organized 10k race the upcoming year."], "tiebreaker": ["Head-to-head Home Run Derby at a softball field. Must be pitched by another human.", "+3 HR bonus if your dad pitches for you."]};
+  const activeRules = S.leagueRules || RULES_DEFAULTS;
+  const rulesDefs = [
+    {key:"format",      emoji:"📋", title:"Format"},
+    {key:"transactions",emoji:"🔄", title:"Transactions"},
+    {key:"prize",       emoji:"🏆", title:"Prize"},
+    {key:"punishment",  emoji:"💀", title:"Punishment"},
+    {key:"tiebreaker",  emoji:"⚔️", title:"Tiebreaker"},
+  ];
+  rulesDefs.forEach(def => {
+    const items = (activeRules[def.key]||[]).map((text,i)=>{return {num:String(i+1),text};});
+    if(items.length) wrap.appendChild(section(def.emoji, def.title, items));
+  });
 
    // Transaction Log — dynamic from S.transactions (Firebase transactions/ collection)
   wrap.appendChild(h("div",{style:{marginTop:"28px"}}));
@@ -2946,6 +2935,69 @@ function buildCommish() {
     },"⚠️ Reset Draft"));
   }
   panel.appendChild(draftSection);
+
+  // ════════════════════════════════════════════════════════════════════════
+  // SECTION — LEAGUE RULES
+  // ════════════════════════════════════════════════════════════════════════
+  const rulesSection = section("League Rules & Prizes","📖","rules"); const rbBody = rulesSection._body;
+  rbBody.appendChild(note("Edit your league rules, prizes, and punishments. Changes are visible to all owners in the Rules tab."));
+
+  const DEFAULT_RULES = {"format": ["Draft 8 players — no bench, no active roster management. You live with injury and suspension luck.", "1 of your 8 picks is designated as your HBP player. Their HRs do not count toward your team total.", "Scoring: Home Runs + Hit By Pitches = Total Points."], "transactions": ["You are allowed 1 roster move (add/drop) anytime before the All-Star Game first pitch (July 14 @ 8:00 PM ET).", "After acquisition, you only collect the new player's HRs or HBPs from that point forward. Stats before the add date do not count.", "The All-Star Game first pitch is the hard trade deadline. No moves after that."], "prize": ["League splits the cost of a MLB jersey for the winner. Winner gets a jersey of a player from their fantasy team with a custom patch."], "punishment": ["Both 2nd place AND last place lose. Each loser gets their choice of punishment:", "The 9-9-9 Challenge — 9 beers (108oz), 9 hot dogs, in 9 innings of baseball at a live MLB game the upcoming year.", "Run in an organized 10k race the upcoming year."], "tiebreaker": ["Head-to-head Home Run Derby at a softball field. Must be pitched by another human.", "+3 HR bonus if your dad pitches for you."]};
+  const currentRules = S.leagueRules || DEFAULT_RULES;
+
+  const rulesSections = [
+    {key:"format",   emoji:"📋", label:"Format"},
+    {key:"transactions", emoji:"🔄", label:"Transactions"},
+    {key:"prize",    emoji:"🏆", label:"Prize"},
+    {key:"punishment", emoji:"💀", label:"Punishment"},
+    {key:"tiebreaker", emoji:"⚔️", label:"Tiebreaker"},
+  ];
+
+  const rulesState = JSON.parse(JSON.stringify(currentRules));
+
+  rulesSections.forEach(sec => {
+    const secWrap = h("div",{style:{marginBottom:"16px"}});
+    secWrap.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},`${sec.emoji} ${sec.label}`));
+    const items = rulesState[sec.key] || [""];
+    items.forEach((item, idx) => {
+      const row = h("div",{style:{display:"flex",gap:"6px",marginBottom:"6px",alignItems:"flex-start"}});
+      row.appendChild(h("span",{style:{color:C.accent,fontWeight:"800",fontSize:"13px",minWidth:"20px",paddingTop:"8px"}},String(idx+1)));
+      const ta = h("textarea",{style:{flex:"1",padding:"8px 10px",borderRadius:"7px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"13px",lineHeight:"1.5",resize:"vertical",outline:"none",minHeight:"52px",boxSizing:"border-box"}});
+      ta.value = item;
+      ta.addEventListener("blur", e => { rulesState[sec.key][idx] = e.target.value; });
+      row.appendChild(ta);
+      // Delete button
+      const delBtn = h("button",{style:{padding:"4px 8px",borderRadius:"5px",cursor:"pointer",background:`${C.red}18`,border:`1px solid ${C.red}44`,color:C.red,fontSize:"11px",marginTop:"6px",flexShrink:"0"},onClick:()=>{
+        rulesState[sec.key].splice(idx,1);
+        // Re-render section
+        set({leagueRules:{...rulesState}});
+      }},"✕");
+      row.appendChild(delBtn);
+      secWrap.appendChild(row);
+    });
+    // Add item button
+    secWrap.appendChild(h("button",{style:{padding:"5px 12px",borderRadius:"6px",cursor:"pointer",fontWeight:"600",fontSize:"12px",background:`${C.green}18`,border:`1px solid ${C.green}44`,color:C.green},onClick:()=>{
+      rulesState[sec.key].push("");
+      set({leagueRules:{...rulesState}});
+    }},"+ Add item"));
+    rbBody.appendChild(secWrap);
+  });
+
+  // Save rules button
+  const rulesSaveStatus = h("div",{style:{fontSize:"12px",fontWeight:"600",marginTop:"8px"}});
+  rbBody.appendChild(rulesSaveStatus);
+  const rulesSaveBtn = h("button",{style:{marginTop:"8px",padding:"10px 24px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"13px",background:C.accent,border:"none",color:"#fff",transition:"background 0.3s"},onClick:async()=>{
+    if(leagueRef) {
+      await setDoc(leagueRef, {leagueRules: rulesState}, {merge:true});
+      set({leagueRules:{...rulesState}});
+      rulesSaveBtn.textContent = "✓ Saved!";
+      rulesSaveBtn.style.background = C.green;
+      setTimeout(()=>{ rulesSaveBtn.textContent="💾 Save Rules"; rulesSaveBtn.style.background=C.accent; }, 2000);
+    }
+  }
+  },"💾 Save Rules");
+  rbBody.appendChild(rulesSaveBtn);
+  panel.appendChild(rulesSection);
 
   overlay.appendChild(panel);
   return overlay;
@@ -4256,6 +4308,7 @@ function startLeagueListener(leagueId, user) {
         lastUpdated: data.lastUpdated||null,
         leagueName: data.leagueName || S.leagueName,
         seasonStartDate: data.seasonStartDate || null,
+        leagueRules: data.leagueRules || null,
         leagueSetup: true,
         isCommish,
         commishUnlocked: isCommish,
