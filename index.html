@@ -2945,54 +2945,89 @@ function buildCommish() {
   const rulesSection = section("League Rules & Prizes","📖","rules"); const rbBody = rulesSection._body;
   rbBody.appendChild(note("Edit your league rules, prizes, and punishments. Changes are visible to all owners in the Rules tab."));
 
-  const DEFAULT_RULES = {"format": ["Draft 8 players — no bench, no active roster management. You live with injury and suspension luck.", "1 of your 8 picks is designated as your HBP player. Their HRs do not count toward your team total.", "Scoring: Home Runs + Hit By Pitches = Total Points."], "transactions": ["You are allowed 1 roster move (add/drop) anytime before the All-Star Game first pitch (July 14 @ 8:00 PM ET).", "After acquisition, you only collect the new player's HRs or HBPs from that point forward. Stats before the add date do not count.", "The All-Star Game first pitch is the hard trade deadline. No moves after that."], "prize": ["League splits the cost of a MLB jersey for the winner. Winner gets a jersey of a player from their fantasy team with a custom patch."], "punishment": ["Both 2nd place AND last place lose. Each loser gets their choice of punishment:", "The 9-9-9 Challenge — 9 beers (108oz), 9 hot dogs, in 9 innings of baseball at a live MLB game the upcoming year.", "Run in an organized 10k race the upcoming year."], "tiebreaker": ["Head-to-head Home Run Derby at a softball field. Must be pitched by another human.", "+3 HR bonus if your dad pitches for you."]};
-  const currentRules = S.leagueRules || DEFAULT_RULES;
+  const settings = S.leagueSettings || {};
+  const rulesSt = {
+    hrPts:           settings.hrPts           ?? 1,
+    hbpPts:          settings.hbpPts          ?? 1,
+    maxTransactions: settings.maxTransactions  ?? 1,
+    txDeadline:      settings.txDeadline       ?? "",
+  };
+  const currentRules = S.leagueRules || {};
+  const freeText = {
+    prize:       (currentRules.prize       || ["League splits the cost of a MLB jersey for the winner."]).join("\n"),
+    punishment:  (currentRules.punishment  || ["Both 2nd place AND last place lose."]).join("\n"),
+    tiebreaker:  (currentRules.tiebreaker  || ["Head-to-head Home Run Derby at a softball field."]).join("\n"),
+  };
 
-  const rulesSections = [
-    {key:"format",   emoji:"📋", label:"Format"},
-    {key:"transactions", emoji:"🔄", label:"Transactions"},
-    {key:"prize",    emoji:"🏆", label:"Prize"},
-    {key:"punishment", emoji:"💀", label:"Punishment"},
-    {key:"tiebreaker", emoji:"⚔️", label:"Tiebreaker"},
-  ];
+  // ── Scoring ────────────────────────────────────────────────────────────────
+  rbBody.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"⚾ Scoring"));
+  const scoreWrap = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"16px"}});
+  const makeNumRow = (label, key, val) => {
+    const row = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}});
+    row.appendChild(h("div",{style:{color:C.text,fontSize:"13px"}},label));
+    const inp = h("input",{type:"number",min:"1",max:"10",style:{width:"60px",padding:"6px 8px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.accent,fontSize:"15px",fontWeight:"700",textAlign:"center",outline:"none"}});
+    inp.value = val;
+    inp.addEventListener("change", e => { rulesSt[key] = Math.max(1, parseInt(e.target.value)||1); });
+    return row;
+  };
+  const hrRow = makeNumRow("Home Runs = ___ point(s) each", "hrPts", rulesSt.hrPts);
+  const hrInp = h("input",{type:"number",min:"1",max:"10",style:{width:"60px",padding:"6px 8px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.accent,fontSize:"15px",fontWeight:"700",textAlign:"center",outline:"none"}});
+  hrInp.value = rulesSt.hrPts;
+  hrInp.addEventListener("change", e => { rulesSt.hrPts = Math.max(1, parseInt(e.target.value)||1); });
+  hrRow.appendChild(hrInp);
+  scoreWrap.appendChild(hrRow);
+  const hbpRow = makeNumRow("Hit By Pitches = ___ point(s) each", "hbpPts", rulesSt.hbpPts);
+  const hbpInp = h("input",{type:"number",min:"1",max:"10",style:{width:"60px",padding:"6px 8px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.accent,fontSize:"15px",fontWeight:"700",textAlign:"center",outline:"none"}});
+  hbpInp.value = rulesSt.hbpPts;
+  hbpInp.addEventListener("change", e => { rulesSt.hbpPts = Math.max(1, parseInt(e.target.value)||1); });
+  hbpRow.appendChild(hbpInp);
+  scoreWrap.appendChild(hbpRow);
+  rbBody.appendChild(scoreWrap);
 
-  const rulesState = JSON.parse(JSON.stringify(currentRules));
+  // ── Transactions ──────────────────────────────────────────────────────────
+  rbBody.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"🔄 Transactions"));
+  const txWrap = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"16px"}});
+  const rosterSize = (S.teams[0]?.players||[]).length || 8;
+  const txInfo1 = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}});
+  txInfo1.appendChild(h("div",{style:{color:C.text,fontSize:"13px"}},`Draft ${rosterSize} players per team`));
+  txInfo1.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",background:C.surface,padding:"4px 10px",borderRadius:"6px"}},"Auto"));
+  txWrap.appendChild(txInfo1);
+  const txInfo2 = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}});
+  txInfo2.appendChild(h("div",{style:{color:C.text,fontSize:"13px"}},"1 pick is the HBP player"));
+  txInfo2.appendChild(h("div",{style:{color:C.muted,fontSize:"12px",background:C.surface,padding:"4px 10px",borderRadius:"6px"}},"Locked"));
+  txWrap.appendChild(txInfo2);
+  const txNumRow = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}});
+  txNumRow.appendChild(h("div",{style:{color:C.text,fontSize:"13px"}},"Roster moves per team per season"));
+  const txNumInp = h("input",{type:"number",min:"1",max:"10",style:{width:"60px",padding:"6px 8px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.accent,fontSize:"15px",fontWeight:"700",textAlign:"center",outline:"none"}});
+  txNumInp.value = rulesSt.maxTransactions;
+  txNumInp.addEventListener("change", e => { rulesSt.maxTransactions = Math.max(1, parseInt(e.target.value)||1); });
+  txNumRow.appendChild(txNumInp);
+  txWrap.appendChild(txNumRow);
+  const dlRow = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"4px"}});
+  dlRow.appendChild(h("div",{style:{color:C.text,fontSize:"13px"}},"Transaction deadline"));
+  const dlInp = h("input",{type:"date",style:{padding:"6px 8px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.accent,fontSize:"13px",fontWeight:"600",outline:"none"}});
+  dlInp.value = rulesSt.txDeadline || "";
+  dlInp.addEventListener("change", e => { rulesSt.txDeadline = e.target.value || ""; });
+  dlRow.appendChild(dlInp);
+  txWrap.appendChild(dlRow);
+  txWrap.appendChild(h("div",{style:{color:C.muted,fontSize:"11px",marginTop:"4px",marginBottom:"4px"}},"Leave blank for no deadline"));
+  rbBody.appendChild(txWrap);
 
-  rulesSections.forEach(sec => {
-    const secWrap = h("div",{style:{marginBottom:"16px"}});
-    secWrap.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},`${sec.emoji} ${sec.label}`));
-    const items = rulesState[sec.key] || [""];
-    items.forEach((item, idx) => {
-      const row = h("div",{style:{display:"flex",gap:"6px",marginBottom:"6px",alignItems:"flex-start"}});
-      row.appendChild(h("span",{style:{color:C.accent,fontWeight:"800",fontSize:"13px",minWidth:"20px",paddingTop:"8px"}},String(idx+1)));
-      const ta = h("textarea",{style:{flex:"1",padding:"8px 10px",borderRadius:"7px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"13px",lineHeight:"1.5",resize:"vertical",outline:"none",minHeight:"52px",boxSizing:"border-box"}});
-      ta.value = item;
-      ta.addEventListener("blur", e => { rulesState[sec.key][idx] = e.target.value; });
-      row.appendChild(ta);
-      // Delete button
-      const delBtn = h("button",{style:{padding:"4px 8px",borderRadius:"5px",cursor:"pointer",background:`${C.red}18`,border:`1px solid ${C.red}44`,color:C.red,fontSize:"11px",marginTop:"6px",flexShrink:"0"},onClick:()=>{
-        rulesState[sec.key].splice(idx,1);
-        // Re-render section
-        set({leagueRules:{...rulesState}});
-      }},"✕");
-      row.appendChild(delBtn);
-      secWrap.appendChild(row);
-    });
-    // Add item button
-    secWrap.appendChild(h("button",{style:{padding:"5px 12px",borderRadius:"6px",cursor:"pointer",fontWeight:"600",fontSize:"12px",background:`${C.green}18`,border:`1px solid ${C.green}44`,color:C.green},onClick:()=>{
-      rulesState[sec.key].push("");
-      set({leagueRules:{...rulesState}});
-    }},"+ Add item"));
-    rbBody.appendChild(secWrap);
+  // ── Free-form sections ────────────────────────────────────────────────────
+  [{key:"prize",emoji:"🏆",label:"Prize"},{key:"punishment",emoji:"💀",label:"Punishment"},{key:"tiebreaker",emoji:"⚔️",label:"Tiebreaker"}].forEach(sec => {
+    rbBody.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"8px"}},`${sec.emoji} ${sec.label}`));
+    const ta = h("textarea",{style:{width:"100%",padding:"10px 12px",borderRadius:"8px",background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:"13px",lineHeight:"1.6",resize:"vertical",outline:"none",minHeight:"80px",boxSizing:"border-box",marginBottom:"14px"}});
+    ta.value = freeText[sec.key];
+    ta.addEventListener("blur", e => { freeText[sec.key] = e.target.value; });
+    rbBody.appendChild(ta);
   });
 
-  // Save rules button
-  const rulesSaveStatus = h("div",{style:{fontSize:"12px",fontWeight:"600",marginTop:"8px"}});
-  rbBody.appendChild(rulesSaveStatus);
-  const rulesSaveBtn = h("button",{style:{marginTop:"8px",padding:"10px 24px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"13px",background:C.accent,border:"none",color:"#fff",transition:"background 0.3s"},onClick:async()=>{
+  // ── Save ──────────────────────────────────────────────────────────────────
+  const rulesSaveBtn = h("button",{style:{padding:"10px 24px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",fontSize:"13px",background:C.accent,border:"none",color:"#fff",transition:"background 0.3s"},onClick:async()=>{
     if(leagueRef) {
-      await setDoc(leagueRef, {leagueRules: rulesState}, {merge:true});
-      set({leagueRules:{...rulesState}});
+      const newRules = {...currentRules, prize:freeText.prize.split("\n").filter(Boolean), punishment:freeText.punishment.split("\n").filter(Boolean), tiebreaker:freeText.tiebreaker.split("\n").filter(Boolean)};
+      await setDoc(leagueRef, {leagueSettings: rulesSt, leagueRules: newRules}, {merge:true});
+      set({leagueSettings:{...rulesSt}, leagueRules:newRules});
       rulesSaveBtn.textContent = "✓ Saved!";
       rulesSaveBtn.style.background = C.green;
       setTimeout(()=>{ rulesSaveBtn.textContent="💾 Save Rules"; rulesSaveBtn.style.background=C.accent; }, 2000);
