@@ -2566,26 +2566,26 @@ function buildCommish() {
 
   // Save button for league settings
   const lsSaveStatus = h("div",{style:{fontSize:"12px",fontWeight:"600",marginTop:"10px"}});
-  lsBody.appendChild(lsSaveStatus);
-  lsBody.appendChild(h("button",{
+  const lsSaveBtn = h("button",{
     style:{marginTop:"8px",padding:"10px 24px",borderRadius:"8px",cursor:"pointer",fontWeight:"800",
-      fontSize:"13px",background:C.accent,border:"none",color:"#ffffff"},
+      fontSize:"13px",background:C.accent,border:"none",color:"#ffffff",transition:"background 0.2s"},
     onClick: async () => {
       try {
         await saveToFirebase(local);
-        // Also save seasonStartDate to Firebase
         if(leagueRef) await setDoc(leagueRef, {seasonStartDate: S.seasonStartDate || null}, {merge:true});
         const withTx = applyTransactions(local, S.transactions);
         set({teams: withTx, cpLocal: JSON.parse(JSON.stringify(local))});
-        lsSaveStatus.textContent = "✓ Saved!";
-        lsSaveStatus.style.color = C.green;
-        setTimeout(()=>{ lsSaveStatus.textContent=""; }, 2000);
+        lsSaveBtn.textContent = "✅ Saved!";
+        lsSaveBtn.style.background = C.green;
+        setTimeout(()=>{ lsSaveBtn.textContent="💾 Save"; lsSaveBtn.style.background=C.accent; }, 2000);
       } catch(e) {
-        lsSaveStatus.textContent = "❌ Save failed: " + e.message;
-        lsSaveStatus.style.color = C.red;
+        lsSaveBtn.textContent = "❌ Failed";
+        lsSaveBtn.style.background = C.red;
+        setTimeout(()=>{ lsSaveBtn.textContent="💾 Save"; lsSaveBtn.style.background=C.accent; }, 3000);
       }
     }
-  },"💾 Save"));
+  },"💾 Save");
+  lsBody.appendChild(lsSaveBtn);
   panel.appendChild(leagueSection);
 
   // ════════════════════════════════════════════════════════════════════════
@@ -2732,8 +2732,16 @@ function buildCommish() {
       set({cpRefreshing:true,cpStatus:"Fetching live MLB stats…"});
       const updated=JSON.parse(JSON.stringify(local));
       for(const t of updated){for(const p of t.players){if(!p.name?.trim())continue;const s=await fetchStats(p.name);if(!s)continue;if(p.type==="hr"&&!p.droppedAt){if(p.addedAt){if(p.hrBaseline===null)p.hrBaseline=s.hr;p.effectiveHR=Math.max(0,s.hr-p.hrBaseline);}else p.effectiveHR=s.hr;}if(p.type==="hbp"&&!p.droppedAt){if(p.addedAt){if(p.hbpBaseline===null)p.hbpBaseline=s.hbp;p.effectiveHBP=Math.max(0,s.hbp-p.hbpBaseline);}else p.effectiveHBP=s.hbp;}if(s.teamAbbr)p.teamAbbr=s.teamAbbr;}}
-      set({cpLocal:updated,cpRefreshing:false,cpStatus:"✓ Stats updated — hit Save to commit."});
-      setTimeout(()=>set({cpStatus:""}),5000);
+      set({cpLocal:updated,cpRefreshing:false,cpStatus:""});
+      // Flash the refresh button
+      const refreshBtns = document.querySelectorAll("button");
+      refreshBtns.forEach(b => { if(b.textContent.includes("Refresh Live Stats")) {
+        b.textContent = "✅ Stats updated — hit Save";
+        b.style.background = C.green+"22";
+        b.style.border = `1px solid ${C.green}55`;
+        b.style.color = C.green;
+        setTimeout(()=>{ b.textContent="⟳ Refresh Live Stats"; b.style.background=""; b.style.border=""; b.style.color=""; }, 4000);
+      }});
     }
   },S.cpRefreshing?"⟳ Refreshing…":"⟳ Refresh Live Stats"));
   const saveBtn = h("button",{
@@ -2742,7 +2750,7 @@ function buildCommish() {
       await saveToFirebase(local);
       const withTx = applyTransactions(local, S.transactions);
       // Flash the button green with a checkmark
-      saveBtn.textContent = "✓ Saved!";
+      saveBtn.textContent = "✅ Saved!";
       saveBtn.style.background = C.green;
       setTimeout(()=>{
         saveBtn.textContent = "💾 Save";
@@ -2961,27 +2969,30 @@ function buildCommish() {
 
   // ── Scoring ────────────────────────────────────────────────────────────────
   rbBody.appendChild(h("div",{style:{color:C.accent,fontSize:"11px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"10px"}},"⚾ Scoring"));
-  const scoreWrap = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${C.border}`,marginBottom:"16px"}});
-  const makeNumRow = (label, key, val) => {
+  const scoringLocked = S.draftState?.status === "complete";
+  const scoreWrap = h("div",{style:{background:C.bg,borderRadius:"8px",padding:"14px",border:`1px solid ${scoringLocked?C.border:C.border}`,marginBottom:"16px"}});
+
+  // Lock notice
+  if(scoringLocked) {
+    scoreWrap.appendChild(h("div",{style:{background:`${C.accent}11`,border:`1px solid ${C.accent}33`,borderRadius:"6px",padding:"8px 10px",marginBottom:"12px",fontSize:"12px",color:C.accent}},"🔒 Scoring is locked after the draft. Reset the league to change point values."));
+  }
+
+  const makeScoreRow = (label, key, val) => {
     const row = h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}});
-    row.appendChild(h("div",{style:{color:C.text,fontSize:"13px"}},label));
-    const inp = h("input",{type:"number",min:"1",max:"10",style:{width:"60px",padding:"6px 8px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.accent,fontSize:"15px",fontWeight:"700",textAlign:"center",outline:"none"}});
-    inp.value = val;
-    inp.addEventListener("change", e => { rulesSt[key] = Math.max(1, parseInt(e.target.value)||1); });
+    row.appendChild(h("div",{style:{color:scoringLocked?C.muted:C.text,fontSize:"13px"}},label));
+    if(scoringLocked) {
+      row.appendChild(h("div",{style:{color:C.muted,fontSize:"15px",fontWeight:"700",minWidth:"60px",textAlign:"right"}},String(val)));
+    } else {
+      const inp = h("input",{type:"number",min:"1",max:"10",style:{width:"60px",padding:"6px 8px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.accent,fontSize:"15px",fontWeight:"700",textAlign:"center",outline:"none"}});
+      inp.value = val;
+      inp.addEventListener("change", e => { rulesSt[key] = Math.max(1, parseInt(e.target.value)||1); });
+      row.appendChild(inp);
+    }
     return row;
   };
-  const hrRow = makeNumRow("Home Runs = ___ point(s) each", "hrPts", rulesSt.hrPts);
-  const hrInp = h("input",{type:"number",min:"1",max:"10",style:{width:"60px",padding:"6px 8px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.accent,fontSize:"15px",fontWeight:"700",textAlign:"center",outline:"none"}});
-  hrInp.value = rulesSt.hrPts;
-  hrInp.addEventListener("change", e => { rulesSt.hrPts = Math.max(1, parseInt(e.target.value)||1); });
-  hrRow.appendChild(hrInp);
-  scoreWrap.appendChild(hrRow);
-  const hbpRow = makeNumRow("Hit By Pitches = ___ point(s) each", "hbpPts", rulesSt.hbpPts);
-  const hbpInp = h("input",{type:"number",min:"1",max:"10",style:{width:"60px",padding:"6px 8px",borderRadius:"6px",background:C.card,border:`1px solid ${C.border}`,color:C.accent,fontSize:"15px",fontWeight:"700",textAlign:"center",outline:"none"}});
-  hbpInp.value = rulesSt.hbpPts;
-  hbpInp.addEventListener("change", e => { rulesSt.hbpPts = Math.max(1, parseInt(e.target.value)||1); });
-  hbpRow.appendChild(hbpInp);
-  scoreWrap.appendChild(hbpRow);
+
+  scoreWrap.appendChild(makeScoreRow("Home Runs = ___ point(s) each", "hrPts", rulesSt.hrPts));
+  scoreWrap.appendChild(makeScoreRow("Hit By Pitches = ___ point(s) each", "hbpPts", rulesSt.hbpPts));
   rbBody.appendChild(scoreWrap);
 
   // ── Transactions ──────────────────────────────────────────────────────────
@@ -3028,7 +3039,7 @@ function buildCommish() {
       const newRules = {...currentRules, prize:freeText.prize.split("\n").filter(Boolean), punishment:freeText.punishment.split("\n").filter(Boolean), tiebreaker:freeText.tiebreaker.split("\n").filter(Boolean)};
       await setDoc(leagueRef, {leagueSettings: rulesSt, leagueRules: newRules}, {merge:true});
       set({leagueSettings:{...rulesSt}, leagueRules:newRules});
-      rulesSaveBtn.textContent = "✓ Saved!";
+      rulesSaveBtn.textContent = "✅ Saved!";
       rulesSaveBtn.style.background = C.green;
       setTimeout(()=>{ rulesSaveBtn.textContent="💾 Save Rules"; rulesSaveBtn.style.background=C.accent; }, 2000);
     }
@@ -3140,7 +3151,7 @@ async function generateDraftCodes() {
   S.teams.forEach(t => { codes[String(t.id)] = genCode(); });
   try {
     await setDoc(leagueRef, { draftCodes: codes }, { merge: true });
-    set({draftCodes: codes, draftCodesGenerated: true, draftGenStatus:"✓ Codes saved!"});
+    set({draftCodes: codes, draftCodesGenerated: true, draftGenStatus:"✅ Codes saved!"});
     setTimeout(()=>set({draftGenStatus:""}), 3000);
   } catch(e) {
     console.error("generateDraftCodes error:", e);
