@@ -14,18 +14,18 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { height: 100%; background: #ddeeff; font-family: 'DM Sans', sans-serif; color: #0d2340; }
+    html, body { height: 100%; background: #f5f5f7; font-family: 'DM Sans', sans-serif; color: #0d2340; }
     #app { min-height: 100vh; }
     @keyframes spin { to { transform: rotate(360deg); } }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     input { font-family: 'DM Sans', sans-serif; }
     button { font-family: 'DM Sans', sans-serif; }
     ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: #c8e0f5; }
-    ::-webkit-scrollbar-thumb { background: #4a8abf; border-radius: 3px; }
+    ::-webkit-scrollbar-track { background: #f5f5f7; }
+    ::-webkit-scrollbar-thumb { background: #d1d1d6; border-radius: 3px; }
     input::placeholder { color: #6b7fa3; }
     .tab-btn { transition: all 0.15s; }
-    .row-hover:hover { background: rgba(26,74,138,0.08) !important; }
+    .row-hover:hover { background: rgba(28,63,110,0.06) !important; }
     @keyframes celebFall {
       0%   { transform: translateY(-20px) rotate(0deg);   opacity: 1; }
       100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
@@ -248,8 +248,8 @@ function findTeamByEmail(teams, email) {
   return teams.find(t => t.email?.toLowerCase() === email?.toLowerCase()) || null;
 }
 const C = {
-  bg:"#ddeeff", surface:"#c8e0f5", card:"#ffffff", border:"#a8c8e8",
-  accent:"#1a4a8a", red:"#c0392b", green:"#1a7a4a", text:"#0d2340", muted:"#4a6a8a"
+  bg:"#f5f5f7", surface:"#ebebed", card:"#ffffff", border:"#d1d1d6",
+  accent:"#1c3f6e", red:"#d93025", green:"#1a7a4a", text:"#1d1d1f", muted:"#6e6e73"
 };
 
 // Teams are loaded dynamically from Firebase — no hardcoded teams
@@ -257,10 +257,12 @@ const HARDCODED_TEAMS = [];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function score(team) {
-  return (team.players||[]).reduce((s,p)=> p.type==="hr"?s+(p.effectiveHR||0):p.type==="hbp"?s+(p.effectiveHBP||0):s, 0);
+  const hrPts = S.leagueSettings?.hrPts ?? 1;
+  const hbpPts = S.leagueSettings?.hbpPts ?? 1;
+  return (team.players||[]).reduce((s,p)=> p.type==="hr"?s+(p.effectiveHR||0)*hrPts:p.type==="hbp"?s+(p.effectiveHBP||0)*hbpPts:s, 0);
 }
-function teamHR(team) { return (team.players||[]).filter(p=>p.type==="hr").reduce((s,p)=>s+(p.effectiveHR||0),0); }
-function teamHBP(team){ return (team.players||[]).filter(p=>p.type==="hbp").reduce((s,p)=>s+(p.effectiveHBP||0),0); }
+function teamHR(team) { const pts = S.leagueSettings?.hrPts ?? 1; return (team.players||[]).filter(p=>p.type==="hr").reduce((s,p)=>s+(p.effectiveHR||0)*pts,0); }
+function teamHBP(team){ const pts = S.leagueSettings?.hbpPts ?? 1; return (team.players||[]).filter(p=>p.type==="hbp").reduce((s,p)=>s+(p.effectiveHBP||0)*pts,0); }
 function fmtDate(iso){ if(!iso)return"—"; return new Date(iso+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}); }
 function fmtTime(iso){ if(!iso)return""; return new Date(iso).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}); }
 
@@ -387,6 +389,7 @@ let S = {
   leagueId: urlLeagueId || null,    // current league ID
   seasonStartDate: null,            // optional league start date (YYYY-MM-DD)
   leagueRules: null,                // custom rules set by commissioner
+  leagueSettings: null,             // { hrPts, hbpPts, maxTransactions, txDeadline }
   currentUser: null,     // Firebase Auth user object
   authScreen: urlLeagueId ? "signin" : "landing", // landing|signin|signup|forgot
   authEmail: "", authPassword: "", authError: "", authLoading: false,
@@ -4125,7 +4128,7 @@ function render() {
 
 
   // Header
-  const header=h("div",{style:{background:`linear-gradient(135deg,${C.surface} 0%,#0d1729 100%)`,borderBottom:`1px solid ${C.border}`,paddingTop:"max(env(safe-area-inset-top), 20px)",paddingBottom:"16px",paddingLeft:"20px",paddingRight:"20px"}});
+  const header=h("div",{style:{background:`linear-gradient(135deg,${C.surface} 0%,#d0d0d5 100%)`,borderBottom:`1px solid ${C.border}`,paddingTop:"max(env(safe-area-inset-top), 20px)",paddingBottom:"16px",paddingLeft:"20px",paddingRight:"20px"}});
   const hInner=h("div",{style:{maxWidth:"640px",margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:"12px"}});
   const myTeamForHeader = S.myTeamId !== null ? S.teams.find(t=>t.id===S.myTeamId) : null;
   const titleBlock=h("div",{},
@@ -4309,6 +4312,7 @@ function startLeagueListener(leagueId, user) {
         leagueName: data.leagueName || S.leagueName,
         seasonStartDate: data.seasonStartDate || null,
         leagueRules: data.leagueRules || null,
+        leagueSettings: data.leagueSettings || null,
         leagueSetup: true,
         isCommish,
         commishUnlocked: isCommish,
